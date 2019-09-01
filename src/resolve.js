@@ -1,35 +1,33 @@
 import _ from 'lodash';
-import uuid from 'uuid/v4';
-const LOG_DEBUG = true;
 
-export default async (context, fn, ...args) => {
-  const id = uuid();
-  const debug = (...args) => {
-    if (LOG_DEBUG){
-      console.log(id, 'resolve()', ...args);
-    }
-  };
-  debug('function', fn.toString());
-  let result = fn(context, ...args);
-  let output = result;
-  debug('result starting value', result);
+const LOG_DEBUG = false;
 
-  while (typeof result !== 'undefined') {
-    output = result;
-    if (_.isFunction(result)) {
-      result = result(context);
-      debug('de-functioned result:', result);
-      debug(id, )
-    } else {
-      const delayed = await result;
-      if (delayed === result) {
-        break;
-      } else {
-        result = delayed;
-        debug('de-promised result:', result);
-      }
-    }
+function debug(...args) {
+  if (LOG_DEBUG) {
+    console.log('resolve: ', ...args);
   }
-  debug(id, 'result(): returning -->', output);
-  return output;
 }
+
+const resolve = (context, alpha, ...args) => {
+  debug('_______ context =', context, 'alpha = ', alpha);
+  if (typeof alpha === 'undefined') {
+    debug('... undefined');
+    return;
+  }
+  if (_.isFunction(alpha)) {
+    debug('... calling fn -', alpha.toString());
+    return resolve(context, alpha(context, ...args));
+  }
+
+  if (Promise.resolve(alpha) === alpha) { // i.e., alpha is a promise
+    debug('... unwrapping promise');
+    return alpha.then((value, ...pArgs) => {
+      return resolve(context, value, ...pArgs);
+    })
+  }
+
+  debug(': result = ', alpha);
+  return alpha;
+};
+
+export default resolve;

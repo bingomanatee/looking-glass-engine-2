@@ -248,14 +248,14 @@ class FSM {
 
     if (fromState === ALL_STATES) {
       this.stateNames.forEach(fs => this.addAction(fs, toState));
-    }
+    } else {
+      if (!this.has(fromState)) {
+        throw new Error(`no ${fromState} in ${this.name}`);
+      }
 
-    if (!this.has(fromState)) {
-      throw new Error(`no ${fromState} in ${this.name}`);
+      const state = this.states.get(fromState);
+      state.addAction(name, toState);
     }
-
-    const state = this.states.get(fromState);
-    state.addAction(name, toState);
 
     return this;
   }

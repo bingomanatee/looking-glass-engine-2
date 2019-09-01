@@ -10,19 +10,20 @@
     "umd"
   ],
   "scripts": {
-    "test": "tap test test/*",
+    "test": "yarn build; tap test test/*",
     "build": "rollup src/index.js --file lib/index.js --format umd --name 'LGE'"
   },
   "dependencies": {
     "@wonderlandlabs/propper": "^2.0.4",
     "bottlejs": "^1.7.2",
+    "is": "^3.3.0",
     "lodash": "^4.17.15",
     "rxjs": "^6.5.2",
     "uuid": "^3.3.3"
   },
   "devDependencies": {
-    "tap": "^14.6.1",
-    "lint": "^0.7.0"
+    "lint": "^0.7.0",
+    "tap": "^14.6.1"
   },
   "author": "David Edelhart",
   "homepage": "https://looking-glass-engine.firebaseapp.com/",

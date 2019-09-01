@@ -1,0 +1,31 @@
+{
+  "name": "looking-glass-engine",
+  "version": "1.0.0",
+  "description": "Describe looking-glass-engine here",
+  "main": "lib/index.js",
+  "module": "es/index.js",
+  "files": [
+    "es",
+    "lib",
+    "umd"
+  ],
+  "scripts": {
+    "test": "tap test test/*",
+    "build": "rollup src/index.js --file lib/index.js --format umd --name 'LGE'"
+  },
+  "dependencies": {
+    "@wonderlandlabs/propper": "^2.0.4",
+    "bottlejs": "^1.7.2",
+    "lodash": "^4.17.15",
+    "rxjs": "^6.5.2",
+    "uuid": "^3.3.3"
+  },
+  "devDependencies": {
+    "tap": "^14.6.1",
+    "lint": "^0.7.0"
+  },
+  "author": "David Edelhart",
+  "homepage": "https://looking-glass-engine.firebaseapp.com/",
+  "license": "MIT",
+  "repository": "https://github.com/bingomanatee/looking-glass-engine"
+}

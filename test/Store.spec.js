@@ -11,7 +11,9 @@ tap.test('Store', (suite) => {
       state: {a: 1, b: 2},
       name: 'simpleStore',
       actions: {
-        doubleA: ({state}) => {
+        doubleA: (store) => {
+          console.log('store:', store);
+          const {state} = store;
           const a = 2 * state.a;
           return {...state, a};
         }
@@ -37,12 +39,6 @@ tap.test('Store', (suite) => {
       }
     });
 
-    s.subscribe((store) => {
-      console.log('store state set to ', store.state);
-    }, e => {
-      console.log('error : ', e);
-    });
-
     cTest.equal(_.get(s, 'state.a'), 1);
     s.actions.doubleA();
     cTest.equal(_.get(s, 'state.a'), 2);
@@ -64,17 +60,46 @@ tap.test('Store', (suite) => {
       }
     });
 
-    s.subscribe((store) => {
-      console.log('store state set to ', store.state);
-    }, e => {
-      console.log('error : ', e);
-    });
-
     cTest.equal(_.get(s, 'state.a'), 1);
     const p = s.actions.doubleA();
     cTest.equal(_.get(s, 'state.a'), 1);
     await p;
     cTest.equal(_.get(s, 'state.a'), 2);
+    s.complete();
+
+    cTest.end();
+  });
+
+  suite.test('property - untyped', (cTest) => {
+    const s = new Store({
+    })
+      .addStateProp('a', {
+        start: 1
+      });
+
+    cTest.equal(_.get(s, 'state.a'), 1);
+    s.actions.setA(3);
+    cTest.equal(_.get(s, 'state.a'), 3);
+
+    s.complete();
+
+    cTest.end();
+  });
+
+  suite.test('property - typed', (cTest) => {
+    const s = new Store({
+    })
+      .addStateProp('a', {
+        start: 1,
+        type: 'integer'
+      });
+
+    cTest.equal(_.get(s, 'state.a'), 1);
+    s.actions.setA(3);
+    cTest.equal(_.get(s, 'state.a'), 3);
+    s.actions.setA('five');
+    cTest.equal(_.get(s, 'state.a'), 3);
+
     s.complete();
 
     cTest.end();

@@ -4,11 +4,16 @@ import uuid from 'uuid';
 import {BehaviorSubject} from "rxjs";
 import is from 'is';
 import makeStoreState, {STORE_STATE_ERROR, STORE_STATE_COMPLETE, STORE_STATE_RUNNING} from './makeStoreState';
-import nameRegex from './nameRegex.js';
-import validate from './validate.js';
-import resolve from './resolve.js';
+import nameRegex from './nameRegex';
+import validate from './validate';
+import resolve from './resolve';
+import capFirst from'./capFirst';
 
-const capFirst = string => string[0].toUpperCase() + string.slice(1);
+const noopStream = {
+  next: _.identity,
+  error: _.identity,
+  complete: _.identity
+}; // a "dev/null" for messages
 
 const isFnName = (str) => {
   if (!str) {
@@ -25,6 +30,7 @@ class Store {
                 name,
                 actions = {},
                 state = {},
+                props = {},
                 debug = false
               }) {
 
@@ -32,11 +38,11 @@ class Store {
     this.state = state;
     this.stream = new BehaviorSubject(this);
     this.addActions(actions);
+    this.addStateProps(props);
 
     if (debug) {
       this.startDebugging();
     }
-
     this._waitForEnd();
   }
 
@@ -58,7 +64,24 @@ class Store {
     return this.stream.subscribe(...args);
   }
 
-  addProp(name, config = {}) {
+  addProp(...args){
+    return this.addStateProp(...args)
+  }
+
+  addStateProps(props){
+    if (props && !is.object(props)) throw new Error('addStateProps expects object');
+
+    Object.keys(props).forEach(name => {
+      this.addStateProp(name, props[name]);
+    });
+
+    return this;
+  }
+
+  addStateProp(name, config = {}, typeProp = null) {
+    if (!is.object(config)){
+      return this.addStateProp(name, {start: config, type: typeProp});
+    }
     let {start = null, type, setter} = config;
 
     if (!name in this.state) {
@@ -69,14 +92,18 @@ class Store {
       setter = `set${capFirst(name)}`;
     }
 
+    console.log('adding state prop ', setter, 'for ', name);
+
     if (!this.actions[setter]) {
       this.addAction(setter, (store, value) => {
         if (type) {
-          validate(type, value);
+          validate(name, type, value);
         }
-        return {...this.state, [name]: value};
+        this.setState(name, value);
       })
     }
+    this.state = {...this.state, [name]: start};
+    return this;
   }
 
   startDebugging() {
@@ -90,7 +117,7 @@ class Store {
       this.debug = true;
       this._stateDebugStreamSub = this._addSubscription(this.storeState.stateStream.subscribe(
         (state) => {
-          this.debugStream.next({
+          this.log({
             source: 'stateStream',
             state
           })
@@ -101,10 +128,9 @@ class Store {
 
   stopDebugging() {
     this.debug = false;
-    if (this.debugStream) {
-      this.debugStream.complete();
-      this.complete(this._stateDebugStreamSub);
-    }
+    this.debugStream.complete();
+    this.complete(this._stateDebugStreamSub);
+    this.debugStream = noopStream;
   }
 
   /**
@@ -138,6 +164,28 @@ class Store {
     this.subscribers.clear();
   }
 
+  /**
+   * Set a single key/value, or multiple key/values:
+   * @param updates {object|string}
+   * @param value {var} (optional)
+   */
+  setState(updates, value){
+    if (is.string(updates)) {
+      const newState = {...this.state, [updates] : value};
+      console.log('setState: new value = ', newState);
+      this.state = newState;
+    } else{
+      if (!(updates && is.object(updates))){
+        throw new Error(`${this.name}.setState expects an oblect`);
+      }
+      this.state = {...this.state, ...updates};
+    }
+  }
+
+  log(params){
+    if (this.debug) this.debugStream.next(params);
+  }
+
   addActions(actionsMap = {}) {
     const actions = this._actions || {};
 
@@ -159,7 +207,8 @@ class Store {
   }
 
   /** *
-   * returns a function that changes state.
+   * adds a mutator function to the actions collection
+   * that updates the store's state..
    * @param name {string}
    * @param mutator {function}
    * @param info {Object}
@@ -186,10 +235,26 @@ class Store {
         })
       }
     } else {
-      this.actions[name] = async (...args) => {
-        this.update(mutator, args, {
+      this.actions[name] = async (...properties) => {
+        const id = this.debug ? uuid(): '';
+        this.log({
+          source: 'action',
+          name,
+          message: 'action called',
+          properties,
+          id,
+          state: {...this.state}
+        });
+        await this.update(mutator, properties, {
           ...info, action: name,
         });
+        this.log({
+          source: 'action',
+          name,
+          message: 'action completed',
+          properties,
+          state: {...this.state}
+        })
       };
     }
   }
@@ -208,6 +273,7 @@ class Store {
       this.state = savedState;
       this.transactions.remove(tid);
     }
+    return savedState;
   }
 
   reset(newState = undefined, patch = false) {
@@ -237,19 +303,22 @@ class Store {
       let nextState = resolve(this, value, ...params);
       if (nextState === Promise.resolve(nextState)) {
         await nextState.then((value) => this.update(value, [], info));
-      } else if (nextState && (typeof nextState === 'object')) {
-        this.state = nextState;
+      } else if (nextState && !is.undefined(nextState)) {
+        if (is.object(nextState)){
+          this.state = {...nextState};
+        } else {
+          console.log('Type Error for', this.name, ' state set to ', nextState);
+          throw new TypeError(this.name + ' bad state submitted to update')
+        }
       }
     } catch (error) {
       stream.error(error);
-      if (this.debug) {
-        this.debugStore.error({
-          source: 'update',
-          info,
-          value,
-          error
-        })
-      }
+      this.debugStore.error({
+        source: 'update',
+        info,
+        value,
+        error
+      });
 
       if (_.get(info, 'transaction')) {
         throw error;
@@ -273,6 +342,9 @@ propper(Store)
       required: false,
       defaultValue: uuid
     })
+  .addProp('debugStore', {
+    defaultValue: noopStream
+  })
   .addProp('propState',
     {
       type: 'object',

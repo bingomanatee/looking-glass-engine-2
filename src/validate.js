@@ -7,7 +7,7 @@ import is from "is";
  * @param test
  * @param value
  */
-const validate = (test, value) => {
+const validate = (name, test, value) => {
   if (Array.isArray(test)) {
     test.forEach(typeItem => {
       validate(typeItem, value);

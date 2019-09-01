@@ -71,8 +71,7 @@ tap.test('Store', (suite) => {
   });
 
   suite.test('property - untyped', (cTest) => {
-    const s = new Store({
-    })
+    const s = new Store({})
       .addStateProp('a', {
         start: 1
       });
@@ -87,12 +86,76 @@ tap.test('Store', (suite) => {
   });
 
   suite.test('property - typed', (cTest) => {
-    const s = new Store({
-    })
+    const s = new Store({})
       .addStateProp('a', {
         start: 1,
         type: 'integer'
       });
+
+    cTest.equal(_.get(s, 'state.a'), 1);
+    s.actions.setA(3);
+    cTest.equal(_.get(s, 'state.a'), 3);
+    s.actions.setA('five');
+    cTest.equal(_.get(s, 'state.a'), 3);
+
+    s.complete();
+
+    cTest.end();
+  });
+
+  suite.test('property - inline', (cTest) => {
+    const s = new Store({})
+      .addStateProp('a', 1, 'integer');
+
+    cTest.equal(_.get(s, 'state.a'), 1);
+    s.actions.setA(3);
+    cTest.equal(_.get(s, 'state.a'), 3);
+    s.actions.setA('five');
+    cTest.equal(_.get(s, 'state.a'), 3);
+
+    s.complete();
+
+    cTest.end();
+  });
+
+  suite.test('property - advanced validation', (cTest) => {
+    const s = new Store({})
+      .addStateProp('a', 1, ['integer', (value) => {
+        if (!is.odd(value)) {
+          throw new Error(`a (${value})must be odd`);
+        }
+      }]);
+
+    s.subscribe(({state}) => {
+      console.log('pav: state:', state);
+    }, (err) => {
+      console.log('pav: error:', err.message)
+    });
+
+    cTest.equal(_.get(s, 'state.a'), 1);
+    s.actions.setA(3);
+    cTest.equal(_.get(s, 'state.a'), 3);
+    s.actions.setA('five');
+    cTest.equal(_.get(s, 'state.a'), 3);
+    s.actions.setA(6);
+    cTest.equal(_.get(s, 'state.a'), 3);
+    s.actions.setA(7);
+    cTest.equal(_.get(s, 'state.a'), 7);
+
+    s.complete();
+
+    cTest.end();
+  });
+
+  suite.test('property - typed-parameterized', (cTest) => {
+    const s = new Store({
+      props: {
+        a: {
+          start: 1,
+          type: 'integer'
+        }
+      }
+    });
 
     cTest.equal(_.get(s, 'state.a'), 1);
     s.actions.setA(3);

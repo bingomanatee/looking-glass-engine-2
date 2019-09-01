@@ -10,13 +10,17 @@ import is from "is";
 const validate = (name, test, value) => {
   if (Array.isArray(test)) {
     test.forEach(typeItem => {
-      validate(typeItem, value);
-    })
+      validate(name, typeItem, value);
+    });
+    return;
   }
 
   if (is.function(test)) {
-    if (!test(value)) {
-      throw new Error('bad set Attempt for ' + name + ': failed test  ' + test.toString());
+    try {
+      test(value);
+    } catch (err) {
+      console.log('validation failure: ', name, test, value);
+      throw err;
     }
   } else if (is.string(test)) {
     if (!is[test]) {

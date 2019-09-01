@@ -120,8 +120,11 @@ indirectly through calling other actions. if an action doesn't have a return cla
 (returns undefined) then calling it will not *directly* change state. 
 
 If you **DO** return state you must return ALL of state; this is not a "delta update" like
-a react setState(). (a `.setState()` method is supplied for "delta updates" but again,
-its best to call it from actions, not directly.)
+a react setState(). 
+ 
+A`.setState()` method is supplied for "delta updates" but again,
+its best to call it from actions, not directly. As a useful shorthand,
+`s.setState('foo', 'bar')` has the same effect as `s.setState({foo: 'bar'))`.
 
 **THE WRONG WAY**
 
@@ -216,3 +219,141 @@ s.setBeta(4);
 // 'error: ', ' bad value set for a: two failed integer'
 // (state is unchanged)
 ```
+
+#### Multiple ways to set props
+
+You can set props as chained calls(as above).
+
+You can also set props as a single call, or as  a constructor parameter:
+```javascript
+const s = new State({alpha: {type: 'integer', start: 1}})
+.addStateProp('beta', 'two', 'string')
+.addStateProps({delta: {start: [1, 2, 3], type: 'array'}});
+
+s.subscribe(({state}) => {
+  console.log('state is now ', state);
+}, (err) => {
+  console.log('error: ', err.message);
+});
+
+s.setAlpha(4);
+// 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3]}
+
+s.setBeta(4);
+// 'error: ', ' bad value set for a: two failed integer'
+// (state is unchanged)
+```
+
+#### Advanced Validation
+
+There are multiple forms of the "type" property:
+
+* falsy - no type checking:
+* string: (name of method of is.js)
+* function: expected to throw on bad data
+* array of any of the above
+
+Array tests are done one at a time; so, in the example below, 
+your tests can trust that value is a string before it arrives into the function. 
+
+```javascript
+const s = new State({alpha: {type: 'integer', start: 1}})
+.addStateProp('beta', 'name', ['string',
+ (value) => {
+if (value.length < 2) throw new Error('must be at least 2 characters');
+},
+(value) => {
+  if (value.length > 10) throw new Error('must be at no more than 10 characters');
+  }
+])
+.addStateProps({delta: {start :[1, 2, 3], type: [
+        'array',
+        (value) => {
+        if (value.length < 1) throw new Error('value cannot be an empty array')
+        }
+    ]
+  }
+});
+
+s.subscribe(({state}) => {
+  console.log('state is now ', state);
+}, (err) => {
+  console.log('error: ', err.message);
+});
+
+s.setBeta(1);
+// 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3];
+
+s.setBeta(100);
+// 'error: ', 'bad value set for beta: 100 failed string'
+
+s.setBeta('a');
+// 'error: ', ' bad value set for beta: value must be at least two characters'
+// (state is unchanged)
+```
+
+## Synchronicity of Actions
+
+Synchronicity is a "fuzzy" thing in Looking Glass engine. The short answer is that
+LGE is synchronous *until it needs to be.* 
+
+Actions that return promises are *resolved* and the promise value (if any) updates the state.
+Actions themselves (once processed into the Store object) return a promise -- however
+if the action itself calls property set actions or any other actions that are not
+asyncrhonous, then the updates are instant, before the promise is resolved. 
+
+If you call an asynchronous action *without waiting for the result* and then call a synchromous 
+action then your resolution is *going to be out of order* and will *not* complete 
+before the resolution of your action:  
+
+If the api below returns [1, 2, 3], then 
+
+```javascript
+
+const s = new State({ actions: { 
+  async loadData( store) {
+       const {data} = await axios.get('http://www.data.com/api')
+      this.setState('data', [...store.state.data, ...data]);
+   },
+   loadAndAppend(store, ...values) {
+       store.actions.loadData();
+       store.actions.setState('data', [...store.state.data, ...values];
+   }
+}
+})
+.addProp('data', [], 'array');
+
+s.actions.loadAndAppend(4, 5, 6)
+    .then(() => {
+    console.log('data is', s.state.data);
+    });
+    // 'data is', 4, 5, 6
+```
+    
+you will *not* see the data from loadData in the console.log because you didn't `await`
+the sub-call to loadData in `loadAndAppend`. 
+
+In the following scenario:
+
+```javascript
+
+const s = new State({ actions: { 
+  async loadData( store) {
+       const {data} = await axios.get('http://www.data.com/api')
+      this.setState('data', [...store.state.data, ...data]);
+   },
+   async loadAndAppend(store, ...values) {
+       await store.actions.loadData();
+       store.actions.setState('data', [...store.state.data, ...values];
+   }
+}
+})
+.addProp('data', [], 'array');
+
+s.actions.loadAndAppend(4, 5, 6)
+    .then(() => {
+    console.log('data is', s.state.data);
+    });
+    // 'data is', 1, 2, 3, 4, 5, 6
+```
+

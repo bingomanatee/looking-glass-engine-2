@@ -3,11 +3,11 @@ import propper from '@wonderlandlabs/propper'
 import uuid from 'uuid';
 import {BehaviorSubject} from "rxjs";
 import is from 'is';
-import makeStoreState, {STORE_STATE_ERROR, STORE_STATE_COMPLETE, STORE_STATE_RUNNING} from './makeStoreState';
+import makeStoreState, {STORE_STATE_ERROR, STORE_STATE_RUNNING} from './makeStoreState';
 import nameRegex from './nameRegex';
 import validate from './validate';
 import resolve from './resolve';
-import capFirst from'./capFirst';
+import capFirst from './capFirst';
 
 const noopStream = {
   next: _.identity,
@@ -92,8 +92,6 @@ class Store {
       setter = `set${capFirst(name)}`;
     }
 
-    console.log('adding state prop ', setter, 'for ', name);
-
     if (!this.actions[setter]) {
       this.addAction(setter, (store, value) => {
         if (type) {
@@ -171,9 +169,7 @@ class Store {
    */
   setState(updates, value){
     if (is.string(updates)) {
-      const newState = {...this.state, [updates] : value};
-      console.log('setState: new value = ', newState);
-      this.state = newState;
+      this.state = {...this.state, [updates]: value};
     } else{
       if (!(updates && is.object(updates))){
         throw new Error(`${this.name}.setState expects an oblect`);
@@ -219,7 +215,6 @@ class Store {
       throw new Error(`${this.name} addAction: overwriting ${name}`);
     }
 
-    // console.log('addAction: name:', name, 'mutator:', mutator, 'info:',  info);
     if (!(name && _.isString(name))) {
       throw new Error('addAction: bad name');
     }
@@ -307,7 +302,6 @@ class Store {
         if (is.object(nextState)){
           this.state = {...nextState};
         } else {
-          console.log('Type Error for', this.name, ' state set to ', nextState);
           throw new TypeError(this.name + ' bad state submitted to update')
         }
       }

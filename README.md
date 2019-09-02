@@ -8,7 +8,11 @@
 in beta; if you are looking for production code its best to pull version 1.0.12 of this module
 </b>
 
-Describe looking-glass-engine here.
+Looking glass engine takes the deceptively hard job of maintaining state
+changes and broadcasting updates. 
+
+It is intended for React, but like RxJS is application agnostic and can be used in any
+development environment (even server side) that requires state management. 
 
 [build-badge]: https://img.shields.io/travis/user/repo/master.png?style=flat-square
 [build]: https://travis-ci.org/user/repo
@@ -19,11 +23,39 @@ Describe looking-glass-engine here.
 [coveralls-badge]: https://img.shields.io/coveralls/user/repo/master.png?style=flat-square
 [coveralls]: https://coveralls.io/github/user/repo
 
-Looking glass engine takes the deceptively hard job of maintaining state
-changes and broadcasting updates. 
+## What is a Store?
 
-A Store instance has a collection of key/value pairs `.state` and a
+A Store instance is an object has a collection of key/value pairs `.state` and a
 collection of actions `.actions` that change state. 
+
+It conforms to the RXJS Observable pattern; updated state can be monitored 
+by calling `.subscreibe(...)` on a state you instantiate.
+
+```javascript
+import {Store} from '@wonderlandlabs/looking-glass-engine';
+
+const myState = new Store(
+{
+  state: {
+      name: 'garden',
+      flowers: ['rose', 'petunia']
+    },
+  actions: {
+    addFlower (store, flower) {
+      const flowers = [...store.state.flowers, flower];
+     // like redux, you return a mutated version of the store's state to update it
+     return {...store.state, flowers};
+    }
+  }
+}); 
+ myState.subscribe((store) => {
+ console.log('state is now ', store.state);
+});
+ myState.addFlower('lilac');
+ // 'state is now', {name: garden, flowers: ['rose', 'petunia', 'lilac']}
+```
+
+In React this can be done in the `componentDidMount()`  handler. 
 
 ## State 
 

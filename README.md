@@ -228,7 +228,7 @@ s.subscribe(({state}) => {
   console.log('state is now ', state);
 });
 
-s.setAlpha(4);
+s.actions.setAlpha(4);
 // 'state is now', {alpha: 4, beta: 2, delta: 3}
 
 ```
@@ -248,10 +248,10 @@ s.subscribe(({state}) => {
   console.log('error: ', err.message);
 });
 
-s.setAlpha(4);
+s.actions.setAlpha(4);
 // 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3]}
 
-s.setBeta(4);
+s.actions.setBeta(4);
 // 'error: ', ' bad value set for a: two failed integer'
 // (state is unchanged)
 ```
@@ -272,10 +272,10 @@ s.subscribe(({state}) => {
   console.log('error: ', err.message);
 });
 
-s.setAlpha(4);
+s.actions.setAlpha(4);
 // 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3]}
 
-s.setBeta(4);
+s.actions.setBeta(4);
 // 'error: ', ' bad value set for a: two failed integer'
 // (state is unchanged)
 ```
@@ -323,13 +323,13 @@ s.subscribe(({state}) => {
   console.log('error: ', err.message);
 });
 
-s.setBeta(1);
+s.actions.setBeta(1);
 // 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3];
 
-s.setBeta(100);
+s.actions.setBeta(100);
 // 'error: ', 'bad value set for beta: 100 failed string'
 
-s.setBeta('a');
+s.actions.setBeta('a');
 // 'error: ', ' bad value set for beta: value must be at least two characters'
 // (state is unchanged)
 ```
@@ -355,7 +355,7 @@ If the api below returns [1, 2, 3], then
 const s = new State({ actions: { 
   async loadData( store) {
        const {data} = await axios.get('http://www.data.com/api')
-      this.setState('data', [...store.state.data, ...data]);
+      store.setState('data', [...store.state.data, ...data]);
    },
    loadAndAppend(store, ...values) {
        store.actions.loadData();
@@ -375,14 +375,15 @@ s.actions.loadAndAppend(4, 5, 6)
 you will *not* see the data from loadData in the console.log because you didn't `await`
 the sub-call to loadData in `loadAndAppend`. 
 
-In the following scenario:
+Below, note that the action call is prefixed with `await` ensuring completion of the async
+action:
 
 ```javascript
 
 const s = new State({ actions: { 
   async loadData( store) {
        const {data} = await axios.get('http://www.data.com/api')
-      this.setState('data', [...store.state.data, ...data]);
+      store.setState('data', [...store.state.data, ...data]);
    },
    async loadAndAppend(store, ...values) {
        await store.actions.loadData();

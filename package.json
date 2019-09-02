@@ -1,6 +1,6 @@
 {
-  "name": "looking-glass-engine",
-  "version": "1.0.0",
+  "name": "@wonderlandlabs/looking-glass-engine",
+  "version": "2.0.0",
   "description": "Describe looking-glass-engine here",
   "main": "lib/index.js",
   "module": "es/index.js",

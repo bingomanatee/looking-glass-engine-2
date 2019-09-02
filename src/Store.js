@@ -78,17 +78,43 @@ class Store {
     return this;
   }
 
+  /**
+   * add both a value to state and a setter function to actions;
+   *
+   * it can be called both with a name, start, type parameters as in
+   * s.addStateProp("count", 0, "integer")
+   *
+   * or
+   *
+   * a.addStateProp("count", {start: 0, type: "integer"}
+   *
+   * type can be empty, a string, a function, or an array of strings/functions.
+   * strings are names of is.js test functions.
+   * functions must throw errors if the value is invalid.
+   *
+   * @param name {string}
+   * @param config {Object|var}
+   * @param typeProp {var}
+   * @returns {Store}
+   */
   addStateProp(name, config = {}, typeProp = null) {
-    if (!is.object(config)){
+
+    if (Array.isArray(config)) {
+      const [start, type] = config;
+      return this.addStateProp(name, {start, type});
+    }
+
+    if (typeProp){
       return this.addStateProp(name, {start: config, type: typeProp});
     }
+
     let {start = null, type, setter} = config;
 
     if (!name in this.state) {
       this.state = {...this.state, [name]: start};
     }
 
-    if (!isFnName(setter)) {
+    if (! setter && isFnName(setter)) {
       setter = `set${capFirst(name)}`;
     }
 
@@ -123,7 +149,7 @@ class Store {
       ));
     }
   }
-
+ q
   stopDebugging() {
     this.debug = false;
     this.debugStream.complete();

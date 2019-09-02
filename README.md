@@ -4,6 +4,10 @@
 [![npm package][npm-badge]][npm]
 [![Coveralls][coveralls-badge]][coveralls]
 
+<b style="color: red">ATTENTION: this is Looking Glass Engine 2.0; its code is still 
+in beta; if you are looking for production code its best to pull version 1.0.12 of this module
+</b>
+
 Describe looking-glass-engine here.
 
 [build-badge]: https://img.shields.io/travis/user/repo/master.png?style=flat-square
@@ -226,7 +230,7 @@ You can set props as chained calls(as above).
 
 You can also set props as a single call, or as  a constructor parameter:
 ```javascript
-const s = new State({alpha: {type: 'integer', start: 1}})
+const s = new State({props: {alpha: {type: 'integer', start: 1}}})
 .addStateProp('beta', 'two', 'string')
 .addStateProps({delta: {start: [1, 2, 3], type: 'array'}});
 
@@ -243,6 +247,12 @@ s.setBeta(4);
 // 'error: ', ' bad value set for a: two failed integer'
 // (state is unchanged)
 ```
+
+warning - if your start value is an object, *don't use inline notation*;
+```javascript
+const s = new State()
+.addStateProp('beta', {a: 1, b: 2}, 'object')
+````
 
 #### Advanced Validation
 

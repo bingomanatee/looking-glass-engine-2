@@ -168,5 +168,20 @@ tap.test('Store', (suite) => {
     cTest.end();
   });
 
+  suite.test('transactional locking', (cTest) => {
+    const s = new Store({
+      props: {
+        a: {
+          start: 1,
+          type: 'integer'
+        }
+      }
+    });
+
+    s.complete();
+
+    cTest.end();
+  });
+
   suite.end();
 });

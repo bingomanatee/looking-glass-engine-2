@@ -48,6 +48,32 @@ tap.test('Store', (suite) => {
     cTest.end();
   });
 
+  suite.test('streaming', (cTest) => {
+    const s = new Store({
+      state: {a: 1, b: 2},
+      name: 'streaming store',
+      actions: {
+        doubleA: ({state}) => {
+          const a = 2 * state.a;
+          return {...state, a};
+        }
+      }
+    });
+    const msg = [];
+    const sub = s.subscribe(({state}) => {
+      console.log('--- pushing msg: ', state);
+      msg.push(state)
+    });
+
+    cTest.same(msg, [{a: 1, b: 2}]);
+    s.actions.doubleA();
+    cTest.same(msg, [{a: 1, b: 2}, {a: 2, b: 2}]);
+
+    s.complete();
+    sub.unsubscribe();
+    cTest.end();
+  });
+
   suite.test('custom action - asynchronous', async (cTest) => {
     const s = new Store({
       state: {a: 1, b: 2},
@@ -125,12 +151,6 @@ tap.test('Store', (suite) => {
           throw new Error(`a (${value})must be odd`);
         }
       }]);
-
-    s.subscribe(({state}) => {
-      console.log('pav: state:', state);
-    }, (err) => {
-      console.log('pav: error:', err.message)
-    });
 
     cTest.equal(_.get(s, 'state.a'), 1);
     s.actions.setA(3);

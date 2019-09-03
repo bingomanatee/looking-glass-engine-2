@@ -34,9 +34,9 @@ class Store {
                 debug = false
               }) {
 
+    this.stream = new BehaviorSubject(this);
     this.name = name || uuid();
     this.state = state;
-    this.stream = new BehaviorSubject(this);
     this.addActions(actions);
     this.addStateProps(props);
 
@@ -64,15 +64,19 @@ class Store {
     return this.stream.subscribe(...args);
   }
 
-  addProp(...args){
+  addProp(...args) {
     return this.addStateProp(...args)
   }
 
-  addStateProps(props){
-    if (props && !is.object(props)) throw new Error('addStateProps expects object');
+  addStateProps(props) {
+    if (props && !is.object(props)) {
+      throw new Error('addStateProps expects object');
+    }
 
     Object.keys(props).forEach(name => {
-      this.addStateProp(name, props[name]);
+      if (name) {
+        this.addStateProp(name, props[name]);
+      }
     });
 
     return this;
@@ -104,17 +108,17 @@ class Store {
       return this.addStateProp(name, {start, type});
     }
 
-    if (typeProp){
+    if (typeProp) {
       return this.addStateProp(name, {start: config, type: typeProp});
     }
 
     let {start = null, type, setter} = config;
 
-    if (!name in this.state) {
+    if (!(name in this.state)) {
       this.state = {...this.state, [name]: start};
     }
 
-    if (! setter && isFnName(setter)) {
+    if (!(setter && isFnName(setter))) {
       setter = `set${capFirst(name)}`;
     }
 
@@ -149,7 +153,7 @@ class Store {
       ));
     }
   }
- q
+
   stopDebugging() {
     this.debug = false;
     this.debugStream.complete();
@@ -193,19 +197,21 @@ class Store {
    * @param updates {object|string}
    * @param value {var} (optional)
    */
-  setState(updates, value){
+  setState(updates, value) {
     if (is.string(updates)) {
       this.state = {...this.state, [updates]: value};
-    } else{
-      if (!(updates && is.object(updates))){
+    } else {
+      if (!(updates && is.object(updates))) {
         throw new Error(`${this.name}.setState expects an oblect`);
       }
       this.state = {...this.state, ...updates};
     }
   }
 
-  log(params){
-    if (this.debug) this.debugStream.next(params);
+  log(params) {
+    if (this.debug) {
+      this.debugStream.next(params);
+    }
   }
 
   addActions(actionsMap = {}) {
@@ -242,10 +248,10 @@ class Store {
     }
 
     if (!(name && _.isString(name))) {
-      throw new Error('addAction: bad name');
+      throw new Error(`addAction: bad name (${name})`);
     }
     if (!is.function(mutator)) {
-      throw new Error('addAction: bad action ' + name);
+      throw new Error(`addAction: bad/non function mutator (${name})`);
     }
     if (_.get(info, 'transaction')) {
       this.actions[name] = async (...args) => {
@@ -257,7 +263,7 @@ class Store {
       }
     } else {
       this.actions[name] = async (...properties) => {
-        const id = this.debug ? uuid(): '';
+        const id = this.debug ? uuid() : '';
         this.log({
           source: 'action',
           name,
@@ -325,7 +331,7 @@ class Store {
       if (nextState === Promise.resolve(nextState)) {
         await nextState.then((value) => this.update(value, [], info));
       } else if (nextState && !is.undefined(nextState)) {
-        if (is.object(nextState)){
+        if (is.object(nextState)) {
           this.state = {...nextState};
         } else {
           throw new TypeError(this.name + ' bad state submitted to update')
@@ -394,12 +400,10 @@ propper(Store)
     {
       type: 'object',
       defaultValue: () => ({}),
-      onChange(nextState) {
-        if (
-          (this.transactions.length < 1)
-          && (this.stateStream.state === STORE_STATE_RUNNING)
-        ) {
-          this.stream.next(nextState);
+      onChange: function () {
+        // note - the stream takes the whole store, not just state, so onChange param ignored
+        if (this && this.stream) {
+          this.stream.next(this);
         }
       }
     });

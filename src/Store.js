@@ -317,8 +317,8 @@ class Store {
     }
 
     const {stream} = this;
-    const {actionId, transaction} = info;
-    let revertState = {...this.state};
+    const {actionId, transaction, clone} = info;
+    let revertState = clone ? _.cloneDeep(this.state) :  {...this.state};
 
     if (transaction) {
       console.log('pushing transaction actionId', actionId);

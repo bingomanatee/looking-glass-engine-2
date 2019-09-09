@@ -8,3 +8,6 @@ First reboot of LGE; entirely new codebase
 ## 2.0.1
 * fixed some stream issues
 * fixed issue with action naming
+
+## 2.0.3 
+* Added transactional locking

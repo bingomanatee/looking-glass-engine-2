@@ -371,10 +371,8 @@ class Store {
   _trimTransaction(actionId) {
     if (!actionId) return;
     const index = _.indexOf(this.transactions, actionId);
-    console.log('reverting transactions', actionId, 't =', this.transactions, index);
     if (index > -1) {
       this.transactions = this.transactions.slice(0, index);
-      console.log('closing transactions 2---', actionId, 't  without it = ', this.transactions);
     } else {
       console.log('--- cant find ', actionId, 'in', this.transactions);
     }

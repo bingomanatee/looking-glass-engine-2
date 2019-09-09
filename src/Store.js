@@ -346,7 +346,9 @@ class Store {
         this.stream.next(this);
       }
     } catch (error) {
-      stream.error(error);
+      stream.error({
+        error, info
+      });
       this.debugStore.error({
         source: 'update',
         info,

@@ -188,15 +188,44 @@ tap.test('Store', (suite) => {
     cTest.end();
   });
 
-  suite.test('transactional locking', (cTest) => {
+  suite.test('transactional locking', async (cTest) => {
     const s = new Store({
+      actions: {
+        'switchTrans': {
+          action: async (store) => {
+            const {a, b} = store.state;
+            await store.actions.setA(b);
+            await store.actions.setB(a);
+          },
+          info: {transaction: true}
+        },
+        'switch': async (store) => {
+          const {a, b} = store.state;
+          await store.actions.setA(b);
+          await store.actions.setB(a);
+        },
+      },
       props: {
         a: {
           start: 1,
           type: 'integer'
+        },
+        b: {
+          start: 2,
+          type: 'integer'
         }
       }
     });
+
+    const events = [];
+
+    s.subscribe(({state}) => events.push(state));
+
+    await s.actions.switchTrans();
+    cTest.ok(_.isEqual(events, [{a: 1, b: 2}, {a: 2, b: 1}]), 'transaction hides middle updates');
+
+    await s.actions.switch();
+    cTest.ok(_.isEqual(events, [{a: 1, b: 2}, {a: 2, b: 1}, {a: 1, b: 1}, {a: 1, b: 2}]), 'more steps without transaction');
 
     s.complete();
 

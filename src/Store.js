@@ -2,6 +2,7 @@ import _ from 'lodash';
 import propper from '@wonderlandlabs/propper'
 import uuid from 'uuid';
 import {BehaviorSubject} from "rxjs";
+import {filter} from 'rxjs/operators';
 import is from 'is';
 import makeStoreState, {STORE_STATE_ERROR, STORE_STATE_RUNNING} from './makeStoreState';
 import nameRegex from './nameRegex';
@@ -34,7 +35,10 @@ class Store {
                 debug = false
               }) {
 
-    this.stream = new BehaviorSubject(this);
+    this.stream = new BehaviorSubject(this)
+      .pipe(filter(() => {
+        return this.transactions.length < 1
+      }));
     this.name = name || uuid();
     this.state = state;
     this.addActions(actions);
@@ -253,37 +257,27 @@ class Store {
     if (!is.function(mutator)) {
       throw new Error(`addAction: bad/non function mutator (${name})`);
     }
-    if (_.get(info, 'transaction')) {
-      this.actions[name] = async (...args) => {
-        this.transaction(() => {
-          this.update(mutator, args, {
-            ...info, action: name
-          });
-        })
-      }
-    } else {
-      this.actions[name] = async (...properties) => {
-        const id = this.debug ? uuid() : '';
-        this.log({
-          source: 'action',
-          name,
-          message: 'action called',
-          properties,
-          id,
-          state: {...this.state}
-        });
-        await this.update(mutator, properties, {
-          ...info, action: name,
-        });
-        this.log({
-          source: 'action',
-          name,
-          message: 'action completed',
-          properties,
-          state: {...this.state}
-        })
-      };
-    }
+    this.actions[name] = async (...properties) => {
+      const actionId = (this.debug || info.transaction) ? uuid() : '';
+      this.log({
+        source: 'action',
+        name,
+        message: 'action called',
+        properties,
+        id: actionId,
+        state: {...this.state}
+      });
+      await this.update(mutator, properties, {
+        ...info, action: name, actionId,
+      });
+      this.log({
+        source: 'action',
+        name,
+        message: 'action completed',
+        properties,
+        state: {...this.state}
+      })
+    };
   }
 
   async transaction(fn) {
@@ -317,11 +311,20 @@ class Store {
   }
 
   async update(value, params = [], info) {
+    let localInfo = {...info};
     if (!Array.isArray(params)) {
       throw new Error(`bad params for update: ${params}`);
     }
 
     const {stream} = this;
+    const {actionId, transaction} = info;
+    let revertState = {...this.state};
+
+    if (transaction) {
+      console.log('pushing transaction actionId', actionId);
+      this.transactions.push(actionId);
+      localInfo.transaction = false;
+    }
 
     try {
       if (this.storeState.state !== STORE_STATE_RUNNING) {
@@ -329,13 +332,18 @@ class Store {
       }
       let nextState = resolve(this, value, ...params);
       if (nextState === Promise.resolve(nextState)) {
-        await nextState.then((value) => this.update(value, [], info));
+        await nextState.then((value) => this.update(value, [], localInfo));
       } else if (nextState && !is.undefined(nextState)) {
         if (is.object(nextState)) {
           this.state = {...nextState};
         } else {
           throw new TypeError(this.name + ' bad state submitted to update')
         }
+      }
+      if (transaction) {
+        this._trimTransaction(actionId);
+        console.log('post transaction state: ,', this.state);
+        this.stream.next(this);
       }
     } catch (error) {
       stream.error(error);
@@ -345,18 +353,30 @@ class Store {
         value,
         error
       });
+      stream.error(error);
 
-      if (_.get(info, 'transaction')) {
-        throw error;
-      } else {
-        stream.error(error);
+      if (transaction) {
+        this._trimTransaction(actionId);
       }
+      this.state = {...revertState};
     }
   }
 
   complete() {
     if (this.debug) {
       this.debugStream.complete();
+    }
+  }
+
+  _trimTransaction(actionId) {
+    if (!actionId) return;
+    const index = _.indexOf(this.transactions, actionId);
+    console.log('reverting transactions', actionId, 't =', this.transactions, index);
+    if (index > -1) {
+      this.transactions = this.transactions.slice(0, index);
+      console.log('closing transactions 2---', actionId, 't  without it = ', this.transactions);
+    } else {
+      console.log('--- cant find ', actionId, 'in', this.transactions);
     }
   }
 }
@@ -377,7 +397,7 @@ propper(Store)
       defaultValue: () => ({})
     })
   .addProp('transactions', {
-    defaultValue: () => new Set()
+    defaultValue: () =>([])
   })
   .addProp('debug',
     {

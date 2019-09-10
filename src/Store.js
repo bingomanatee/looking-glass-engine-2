@@ -321,7 +321,6 @@ class Store {
     let revertState = clone ? _.cloneDeep(this.state) :  {...this.state};
 
     if (transaction) {
-      console.log('pushing transaction actionId', actionId);
       this.transactions.push(actionId);
       localInfo.transaction = false;
     }
@@ -342,7 +341,6 @@ class Store {
       }
       if (transaction) {
         this._trimTransaction(actionId);
-        console.log('post transaction state: ,', this.state);
         this.stream.next(this);
       }
     } catch (error) {

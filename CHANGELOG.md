@@ -11,3 +11,6 @@ First reboot of LGE; entirely new codebase
 
 ## 2.0.4
 * Added transactional locking
+
+## 2.0.6
+* Removed annoying console logs

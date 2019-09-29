@@ -4,10 +4,6 @@
 [![npm package][npm-badge]][npm]
 [![Coveralls][coveralls-badge]][coveralls]
 
-<b style="color: red">ATTENTION: this is Looking Glass Engine 2.0; its code is still 
-in beta; if you are looking for production code its best to pull version 1.0.12 of this module
-</b>
-
 Looking glass engine takes the deceptively hard job of maintaining state
 changes and broadcasting updates. 
 
@@ -72,12 +68,7 @@ immediately registered .
 **THE WRONG WAY**
 
 ```javascript
-// the road to hell
-
 const s = new Store({state: {a: 1, b: 2}});
-s.setState({a: 2, b: 3});
-
-// actual hell
 s.state.b = 4;
 ```
 
@@ -136,7 +127,7 @@ s.actions.incrementBoth();
 Actions change state in one of three ways:
 
 1. The return value of an action, *if it is not undefined*, replaces the state.
-   This is the "redux pattern" state updating.
+   This is the "redux pattern" state updating. (with some exceptions)
 2. Actions have access to the store, and so, can call *other actions*. 
 3. BOTH of the above changes can occur from the same Store's action. 
 
@@ -158,8 +149,12 @@ indirectly through calling other actions. if an action doesn't have a return cla
 If you **DO** return state you must return ALL of state; this is not a "delta update" like
 a react setState(). 
  
-A`.setState()` method is supplied for "delta updates" but again,
-its best to call it from actions, not directly. As a useful shorthand,
+A`.setState()` method is supplied for "delta updates"; it takes an object and blends
+the objects' values into the state. 
+etState does NOT trigger an update notification! It is intended to only be called
+from inside an action, not from outside the state. 
+  
+As a useful shorthand,
 `s.setState('foo', 'bar')` has the same effect as `s.setState({foo: 'bar'))`.
 
 **THE WRONG WAY**
@@ -172,8 +167,8 @@ actions: {
    let {a} = state;
     a += 1;
     return {a};
-}
-}
+    }
+  }
 })
 
 s.subscribe(({state}) => {
@@ -188,7 +183,6 @@ s.actions.incrementA();
 ```
 
 **THE RIGHT WAY**
-**THE WRONG WAY**
 
 ```javascript
 
@@ -198,8 +192,8 @@ actions: {
    let {a} = state;
     a += 1;
     return {...state, a};
-}
-}
+    }
+  }
 })
 
 s.subscribe(({state}) => {
@@ -337,12 +331,12 @@ s.actions.setBeta('a');
 ## Synchronicity of Actions
 
 Synchronicity is a "fuzzy" thing in Looking Glass engine. The short answer is that
-LGE is synchronous *until it needs to be.* 
+LGE is *both*.
 
 Actions that return promises are *resolved* and the promise value (if any) updates the state.
 Actions themselves (once processed into the Store object) return a promise -- however
 if the action itself calls property set actions or any other actions that are not
-asyncrhonous, then the updates are instant, before the promise is resolved. 
+asynchronous, then the updates are instant, before the promise is resolved. 
 
 If you call an asynchronous action *without waiting for the result* and then call a synchromous 
 action then your resolution is *going to be out of order* and will *not* complete 
@@ -359,7 +353,7 @@ const s = new State({ actions: {
    },
    loadAndAppend(store, ...values) {
        store.actions.loadData();
-       store.actions.setState('data', [...store.state.data, ...values];
+       store.actions.setState('data', [...store.state.data, ...values]);
    }
 }
 })

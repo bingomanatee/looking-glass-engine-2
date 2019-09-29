@@ -131,13 +131,17 @@ tap.test('Store', (suite) => {
 
   suite.test('property - inline', (cTest) => {
     const s = new Store({})
+      .addStateProp('b', {c: 2, d: 3}, 'object')
       .addStateProp('a', 1, 'integer');
 
     cTest.equal(_.get(s, 'state.a'), 1);
+    cTest.same(_.get(s, 'state.b'), {c: 2, d: 3});
+
     s.actions.setA(3);
     cTest.equal(_.get(s, 'state.a'), 3);
     s.actions.setA('five');
     cTest.equal(_.get(s, 'state.a'), 3);
+
 
     s.complete();
 

@@ -273,8 +273,6 @@ s.actions.setBeta(4);
 // 'error: ', ' bad value set for a: two failed integer'
 // (state is unchanged)
 ```
-
-warning - if your start value is an object, *don't use inline notation*;
 ```javascript
 const s = new State()
 .addStateProp('beta', {a: 1, b: 2}, 'object')

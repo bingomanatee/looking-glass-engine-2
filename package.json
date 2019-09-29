@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "test": "yarn build; tap test test/*",
-    "build": "rollup src/index.js --file lib/index.js --format umd --name 'LGE'"
+    "build": "node_modules/rollup/dist/bin/rollup -c='rollup.config.js'"
   },
   "dependencies": {
     "@wonderlandlabs/propper": "^2.0.4",
@@ -22,6 +22,7 @@
     "uuid": "^3.3.3"
   },
   "devDependencies": {
+    "rollup": "^1.22.0",
     "lint": "^0.7.0",
     "tap": "^14.6.1"
   },

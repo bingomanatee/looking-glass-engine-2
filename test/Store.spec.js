@@ -61,7 +61,6 @@ tap.test('Store', (suite) => {
     });
     const msg = [];
     const sub = s.subscribe(({state}) => {
-      console.log('--- pushing msg: ', state);
       msg.push(state)
     });
 

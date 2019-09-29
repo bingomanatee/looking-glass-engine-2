@@ -391,4 +391,3 @@ s.actions.loadAndAppend(4, 5, 6)
     });
     // 'data is', 1, 2, 3, 4, 5, 6
 ```
-

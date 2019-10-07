@@ -1,6 +1,6 @@
 const tap = require('tap');
 const _ = require('lodash');
-const is = require('is');
+const is = require('is_js');
 
 const {Store} = require('./../lib/index');
 

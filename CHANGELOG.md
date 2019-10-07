@@ -14,3 +14,6 @@ First reboot of LGE; entirely new codebase
 
 ## 2.0.6
 * Removed annoying console logs
+
+## 2.0.7
+* d'oh! was using the wrong comparator library; replacing is with `is_js`

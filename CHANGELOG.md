@@ -17,3 +17,7 @@ First reboot of LGE; entirely new codebase
 
 ## 2.0.7
 * d'oh! was using the wrong comparator library; replacing is with `is_js`
+
+## 2.1.0
+Introducing ValueStreams, a recursive design for nested states
+as an eventual replacement for store. 

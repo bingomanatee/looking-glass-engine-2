@@ -1,4 +1,4 @@
-import is from 'is_js';
+import is from 'is';
 
 export default function (string) {
   if (!(string && is.string(string))) {

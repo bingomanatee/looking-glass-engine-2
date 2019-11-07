@@ -37,7 +37,7 @@ export const EMPTY_MAP = {
   }
 };
 
-const PARAMETER_NAMES = 'name,startValue,type,parent,onError'.split(',');
+const PARAMETER_NAMES = 'name,startValue,type,parent,onError,actions'.split(',');
 
 const STATUS_ACTIVE = Symbol('active');
 const STATUS_CLOSED = Symbol('closed');
@@ -88,13 +88,15 @@ class ValueStream {
     if (this._streamSet) {
       throw new Error('valueStream stream cannot be reset');
     }
-    this._stream = new BehaviorSubject(this.startValue);
-    const valueSub = this._stream.subscribe((value) => {
+    this._stream = new BehaviorSubject(this);
+    this._rootSub = this._stream.subscribe((value) => {
       // the overall model is push and broadcast -- nothing is done locally after
       // update is broadcast
     }, (err) => {
     }, () => {
       try {
+        this._unsubChildren();
+        this._rootSub = null;
         this._status = STATUS_CLOSED;
       } catch (err) {
         console.log('error unsubscribing? unpossible!', err);
@@ -103,7 +105,84 @@ class ValueStream {
     this._streamSet = true;
   }
 
+  _unsubChildren() {
+    this.childSubs.forEach((sub, key) => {
+      sub.unsubscribe();
+      this.childSubs.delete(key);
+    })
+  }
+
+  complete() {
+    this.stream.complete();
+  }
+
   /********* PROPERTIES **************/
+
+  get actions() {
+    if (!this._actions) {
+      this._actions = {};
+    }
+
+    return this._actions;
+  }
+
+  set actions(obj) {
+    if (obj && is.object(obj)) {
+      Object.keys(obj).forEach((fn, name) => {
+        this.addAction(name, fn);
+      })
+    }
+  }
+
+  setState(values) {
+    this.transact(() => {
+      let update = false;
+
+      Object.keys(values).forEach(key => {
+        if (this.has(key)) {
+          const value = this.get(key);
+          if (value !== values[key]) {
+            update = true;
+            this.set(key, value);
+          }
+        }
+      });
+      return update;
+    });
+  }
+
+  addAction(name, fn, transact) {
+    if (transact) {
+      this.actions[name] = async (...args) => {
+        await this.transact(async () => {
+          const result = await resolve(this, fn(this, ...args));
+          if (result && is.object(result)) {
+            this.setState(result);
+            return false;
+          } else {
+            return result;
+          }
+        });
+      };
+      return this;
+    } else {
+      this.actions[name] = async (...args) => {
+        const result = await resolve(this, fn(this, ...args));
+        if (result && is.object(result)) {
+          this.setState(result);
+        }
+        return this;
+      };
+    }
+    return this;
+  }
+
+  get state() {
+    if (this.hasChildren) {
+      return this.values;
+    }
+    return this.value;
+  }
 
   get stream() {
     return this._stream;
@@ -118,7 +197,7 @@ class ValueStream {
     if (this.hasChildren) {
       return this.children;
     } else if (this._value === ABSENT) {
-      return undefined;
+      return this.startValue;
     }
     return this._value;
   }
@@ -131,7 +210,7 @@ class ValueStream {
    */
   get values() {
     if (!this.hasChildren) {
-      return this._value;
+      return this.value;
     }
 
     const out = {};
@@ -139,10 +218,6 @@ class ValueStream {
       out[key] = value instanceof ValueStream ? value.values : value;
     });
     return out;
-  }
-
-  get state() {
-    return [this.name, this.values, this.status, this.lastError];
   }
 
   get children() {
@@ -165,8 +240,15 @@ class ValueStream {
     const status = this._status;
     this._status = STATUS_TRANSACTION;
 
-    await resolve(fn);
-    this._status = status;
+    const t = this._tCount;
+    this._tCount = t + 1;
+    try {
+      await resolve(this, fn);
+    } catch (err) {
+      console.log('transaction error', t, err);
+      this._emitError(err);
+    }
+    this.status = status;
     this._broadcast();
   }
 
@@ -175,6 +257,12 @@ class ValueStream {
       return this.stream.subscribe(...args);
     }
     throw new Error('cannot subscribe to a closed valueStream');
+  }
+
+  get(key) {
+    if (this.has(key)) {
+      return this.children.get(key);
+    }
   }
 
   set(key, value) {
@@ -187,15 +275,14 @@ class ValueStream {
       }
       if (!this.has(key)) {
         console.log('failed to find key in ', this.children);
-        throw new Error('ValueStream ' + this.name + ' has no child ' + key +  ' -- existing keys [' + Array.from(this.children.keys()).join(',') + ']');
+        throw new Error('ValueStream ' + this.name + ' has no child ' + key + ' -- existing keys [' + Array.from(this.children.keys()).join(',') + ']');
       }
       this.updateChildValue(key, value);
     } else {
-      value = key;
       if (this.isClosed) {
         throw new Error('cannot update value of closed stream ' + this.name);
       }
-      this._updateSingleValue(value);
+      this._updateSingleValue(key);
     }
   }
 
@@ -228,19 +315,20 @@ class ValueStream {
   }
 
   addChild(key, value) {
-    if (!this.hasChildren) {
-      this._children = new Map();
-    }
+    this._allowChildren();
     if (this.children.has(key)) {
       throw new Error('cannot redefine key ' + key)
     }
-    if (value instanceof ValueStream) {
-      this.children.set(key, value);
+    this.children.set(key, value);
 
-    } else {
-      this.children.set(key, new ValueStream(key, value));
-    }
     this._updateStatus();
+
+    this.addAction('set' + capFirst(key),
+      (store, value) => {
+        this.updateChildValue(key, value);
+        return false;
+      });
+
     this.childSubs.set(key, this.children.get(key).subscribe((value) => {
       this._broadcast();
     }, (error) => {
@@ -250,6 +338,13 @@ class ValueStream {
         this.childSubs.delete(key);
       }
     }))
+  }
+
+  _allowChildren() {
+    if (this.hasChildren) {
+      return;
+    }
+    this._children = new Map();
   }
 
   _updateSingleValue(value) {
@@ -273,8 +368,9 @@ class ValueStream {
     const currentValue = this.children.get(key);
     if (currentValue instanceof ValueStream) {
       currentValue.set(childValue);
-    } else {
-      this.children.set(key, childValue);
+    } else if (currentValue !== childValue) {
+      this.children.set(key, value);
+      this._broadcast();
     }
   }
 
@@ -290,20 +386,17 @@ class ValueStream {
 
   _emitError(err) {
     if (!this.isClosed) {
-      this.stream.error(err);
+      if (is.string(err)) err = new Error(err);
+        this.stream.error(err);
     }
   }
 
   _broadcast() {
     // if (this.isTransacting) return;
     if (!(this.isActive)) {
-      return this._emitError(new Error('attempt to update the value on a closed ValueStream'))
+      return;
     }
-    if (this.hasChildren) {
-      this.stream.next(this.values);
-    } else {
-      this.stream.next(this.value);
-    }
+    this.stream.next(this);
   }
 
   _setLocalValue(value) {
@@ -372,6 +465,7 @@ class ValueStream {
   get isClosed() {
     return this.status === STATUS_CLOSED;
   }
+
   get isTransactng() {
     return this.status === STATUS_TRANSACTION;
   }
@@ -392,8 +486,8 @@ propper(ValueStream)
   .addProp('parent')
   .addProp('startValue', {
     onChange(value) {
+      this._value = value;
       if (this.isNew) {
-        this._value = value;
         this._updateStatus();
       }
     }
@@ -405,6 +499,7 @@ propper(ValueStream)
     type: 'boolean',
     defaultValue: true
   })
+  .addProp('_tCount', {defaultValue: 0, type: 'integer'})
   .addProp('lastError')
   .addProp('tests', {
     type: 'array',

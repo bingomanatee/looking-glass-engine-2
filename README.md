@@ -4,6 +4,12 @@
 [![npm package][npm-badge]][npm]
 [![Coveralls][coveralls-badge]][coveralls]
 
+## NOTE ON VALUESTREAMS
+
+this branch contains ValueStreams, which will ultimately replace Stores
+
+# Main Documentation
+
 Looking glass engine takes the deceptively hard job of maintaining state
 changes and broadcasting updates. 
 

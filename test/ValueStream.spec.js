@@ -49,14 +49,16 @@ tap.test('ValueStream', (suite) => {
     // monitor activity
     const values = [];
     const errors = [];
-    const s = valStream.subscribe((v) => values.push(v), (e) => errors.push(e));
+
+    const s = valStream.subscribe((store) => {
+      return values.push(store.state);
+    }, (e) => errors.push(e));
 
     testSVStream.same(valStream.name, 'Bob');
     testSVStream.notOk(valStream.isNew);
     testSVStream.ok(valStream.isActive);
     testSVStream.notOk(valStream.hasChildren);
     testSVStream.same(valStream.value, 1000);
-
     testSVStream.same(values, [1000], 'values contains initial startValue');
 
     valStream.set(2000);
@@ -75,7 +77,7 @@ tap.test('ValueStream', (suite) => {
     /// monitor activity
     const values = [];
     const errors = [];
-    const s = valStream.subscribe((v) => values.push(v), (e) => errors.push(e));
+    const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
 
     testSVStream.same(valStream.name, 'Bob');
     testSVStream.notOk(valStream.isNew);
@@ -105,7 +107,7 @@ tap.test('ValueStream', (suite) => {
     // monitor activity
     const values = [];
     const errors = [];
-    const s = valStream.subscribe((v) => values.push(v), (e) => errors.push(e));
+    const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
 
     testPS.same(values, [{name: 'Robert Paulson', age: 50, alive: false}], 'stream has all the props');
     testPS.same(valStream.values, {name: 'Robert Paulson', age: 50, alive: false}, 'starts with initial values');
@@ -119,6 +121,139 @@ tap.test('ValueStream', (suite) => {
     testPS.same(valStream.values.age, 20);
     s.unsubscribe();
     testPS.end();
+  });
+
+  suite.test('actions', (actionsTest) => {
+    actionsTest.test('set action', (saTest) => {
+      const valStream = new ValueStream('Bob')
+        .addSubStream('name', 'Robert Paulson', 'string')
+        .addSubStream('age', 50, 'number')
+        .addSubStream('alive', false);
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+
+      saTest.same(values, [{name: 'Robert Paulson', age: 50, alive: false}], 'stream has all the props');
+      saTest.same(valStream.values, {name: 'Robert Paulson', age: 50, alive: false}, 'starts with initial values');
+
+      valStream.actions.setAge(20);
+      saTest.same(values, [
+          {name: 'Robert Paulson', age: 50, alive: false},
+          {name: 'Robert Paulson', age: 20, alive: false}
+        ]
+      );
+      saTest.same(valStream.values.age, 20);
+      s.unsubscribe();
+
+      saTest.end();
+    });
+
+    actionsTest.test('custom action', (customActionTest) => {
+      const valStream = new ValueStream('Bob')
+        .addSubStream('name', 'Robert Paulson', 'string')
+        .addSubStream('age', 50, 'number')
+        .addSubStream('alive', true)
+        .addAction('addAge', ({actions, state}, years = 1) => {
+          const {age} = state;
+          const newAge = age + years;
+          actions.setAge(newAge);
+          if (newAge > 70) {
+            actions.setAlive(false);
+          }
+        });
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+
+      customActionTest.same(values, [{name: 'Robert Paulson', age: 50, alive: true}],
+        'stream has all the props');
+      customActionTest.same(valStream.values, {
+        name: 'Robert Paulson',
+        age: 50,
+        alive: true
+      }, 'starts with initial values');
+
+      valStream.actions.addAge(10);
+      customActionTest.same(values, [
+          {name: 'Robert Paulson', age: 50, alive: true},
+          {name: 'Robert Paulson', age: 60, alive: true}
+        ]
+      );
+      valStream.actions.addAge(10);
+      valStream.actions.addAge(10);
+      customActionTest.same(values, [
+          {name: 'Robert Paulson', age: 50, alive: true},
+          {name: 'Robert Paulson', age: 60, alive: true},
+          {name: 'Robert Paulson', age: 70, alive: true},
+          {name: 'Robert Paulson', age: 80, alive: true},
+          {name: 'Robert Paulson', age: 80, alive: false}
+        ]
+      );
+
+      customActionTest.same(valStream.values.age, 80);
+      s.unsubscribe();
+
+      customActionTest.end();
+    });
+
+    actionsTest.test('custom action - transactional', async (customActionTest) => {
+      const valStream = new ValueStream('Bob')
+        .addSubStream('name', 'Robert Paulson', 'string')
+        .addSubStream('age', 50, 'number')
+        .addSubStream('alive', true)
+        .addAction('addAge', ({actions, state}, years = 1) => {
+          const {age} = state;
+          const newAge = age + years;
+          actions.setAge(newAge);
+          if (newAge > 70) {
+            actions.setAlive(false);
+          }
+        }, true);
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = valStream.subscribe((store) => {
+        return values.push(store.state);
+      }, (e) => {
+        return errors.push(e);
+      });
+
+      customActionTest.same(values, [{name: 'Robert Paulson', age: 50, alive: true}],
+        'stream has all the props');
+      customActionTest.same(valStream.values, {
+        name: 'Robert Paulson',
+        age: 50,
+        alive: true
+      }, 'starts with initial values');
+      await valStream.actions.addAge(10);
+      customActionTest.same(values, [
+          {name: 'Robert Paulson', age: 50, alive: true},
+          {name: 'Robert Paulson', age: 60, alive: true}
+        ]
+      );
+
+            await valStream.actions.addAge(10);
+            await valStream.actions.addAge(10);
+            customActionTest.same(values, [
+                {name: 'Robert Paulson', age: 50, alive: true},
+                {name: 'Robert Paulson', age: 60, alive: true},
+                {name: 'Robert Paulson', age: 70, alive: true},
+                {name: 'Robert Paulson', age: 80, alive: false}
+              ]
+            );
+
+            customActionTest.same(valStream.values.age, 80);
+      s.unsubscribe();
+
+      customActionTest.end();
+    });
+
+    actionsTest.end();
   });
 
   suite.test('.hasChildren', (testSet) => {

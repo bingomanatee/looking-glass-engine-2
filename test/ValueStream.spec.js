@@ -90,7 +90,7 @@ tap.test('ValueStream', (suite) => {
     testSVStream.same(valStream.value, 1000);
 
     testSVStream.same(errors.length, 1, '1 error caught');
-    testSVStream.same(errors[0].message,  "bad set attempt");
+    testSVStream.same(errors[0].message, "bad set attempt");
 
     s.unsubscribe();
     testSVStream.end();
@@ -98,20 +98,38 @@ tap.test('ValueStream', (suite) => {
 
   suite.test('parent stream', (testPS) => {
     const valStream = new ValueStream('Bob')
-      .addProp('name', 'Robert Paulson', 'string')
-      .addProp('age', 50)
-      .addProp('alive', false);
+      .addSubStream('name', 'Robert Paulson', 'string')
+      .addSubStream('age', 50, 'number')
+      .addSubStream('alive', false);
 
     // monitor activity
     const values = [];
     const errors = [];
     const s = valStream.subscribe((v) => values.push(v), (e) => errors.push(e));
 
-    testPS.same(values, [ { name: 'Robert Paulson', age: 50, alive: false } ], 'stream has all the props');
-    testPS.same(valStream.values, { name: 'Robert Paulson', age: 50, alive: false }, 'starts with initial values');
+    testPS.same(values, [{name: 'Robert Paulson', age: 50, alive: false}], 'stream has all the props');
+    testPS.same(valStream.values, {name: 'Robert Paulson', age: 50, alive: false}, 'starts with initial values');
 
+    valStream.set('age', 20);
+    testPS.same(values, [
+        {name: 'Robert Paulson', age: 50, alive: false},
+        {name: 'Robert Paulson', age: 20, alive: false}
+      ]
+    );
+    testPS.same(valStream.values.age, 20);
     s.unsubscribe();
     testPS.end();
+  });
+
+  suite.test('.hasChildren', (testSet) => {
+    const valStream = new ValueStream('Bob');
+
+    testSet.notOk(valStream.hasChildren, 'does not have children');
+    valStream.addSubStream('age', 20);
+    testSet.ok(valStream.hasChildren, 'has children');
+    testSet.ok(valStream.has('age'), 'has new prop');
+
+    testSet.end();
   });
 
   suite.end();

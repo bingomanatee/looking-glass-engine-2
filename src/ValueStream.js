@@ -12,6 +12,7 @@ import capFirst from './capFirst';
 
 // to reduce memory, a "stub" map is used for children until a child is added parametrically
 export const EMPTY_MAP = {
+  _id: 'empty map',
   get() {
     return null;
   },
@@ -115,7 +116,7 @@ class ValueStream {
    */
   get value() {
     if (this.hasChildren) {
-      return this.childMap;
+      return this.children;
     } else if (this._value === ABSENT) {
       return undefined;
     }
@@ -134,7 +135,7 @@ class ValueStream {
     }
 
     const out = {};
-    this.childMap.forEach((value, key) => {
+    this.children.forEach((value, key) => {
       out[key] = value instanceof ValueStream ? value.values : value;
     });
     return out;
@@ -146,13 +147,6 @@ class ValueStream {
 
   get children() {
     return this._children || EMPTY_MAP;
-  }
-
-  get childMap() {
-    if ((!this._childValues) && (this.hasChildren)) {
-      this._childValues = new Map();
-    }
-    return this._childValues || EMPTY_MAP;
   }
 
   get childSubs() {
@@ -183,7 +177,7 @@ class ValueStream {
     throw new Error('cannot subscribe to a closed valueStream');
   }
 
-  set(value, key = ABSENT) {
+  set(key, value) {
     if (this.hasChildren) {
       if (key === ABSENT) {
         throw new Error('cannot set the value of a parent ValueStream');
@@ -191,11 +185,13 @@ class ValueStream {
       if (!this.canSetChildValues) {
         throw new Error('cannot set the child values of this ValueStream with "set"')
       }
-      if (!this.hasChild(key)) {
-        throw new Error('ValueStream ' + this.name + ' has no child ' + key);
+      if (!this.has(key)) {
+        console.log('failed to find key in ', this.children);
+        throw new Error('ValueStream ' + this.name + ' has no child ' + key +  ' -- existing keys [' + Array.from(this.children.keys()).join(',') + ']');
       }
       this.updateChildValue(key, value);
     } else {
+      value = key;
       if (this.isClosed) {
         throw new Error('cannot update value of closed stream ' + this.name);
       }
@@ -203,22 +199,32 @@ class ValueStream {
     }
   }
 
+  has(key) {
+    // note will hit EMPTY_MAP for single value
+    return this.children.has(key);
+  }
+
   addSubStream(key, ...args) {
+    let value;
     const first = args[0];
     if (first instanceof ValueStream) {
       first.parent = this;
-      this.addChild(key, first);
+      value = first;
     } else {
-      const value = new ValueStream(key, ...args);
+      value = new ValueStream(key, ...args);
       value.parent = this;
-      this.addChild(key, value);
     }
+    this.addChild(key, value);
     return this;
   }
 
+  /**
+   * a synonym for backwards compatibility
+   * @param args
+   * @returns {*}
+   */
   addProp(...args) {
-    this.addSubStream(...args);
-    return this;
+    return this.addSubStream(...args);
   }
 
   addChild(key, value) {
@@ -229,21 +235,21 @@ class ValueStream {
       throw new Error('cannot redefine key ' + key)
     }
     if (value instanceof ValueStream) {
-      this.childMap.set(key, value.values);
-      this._updateStatus();
-      this.childSubs.set(key, value.subscribe((value) => {
-        this._broadcast();
-      }, (error) => {
-      }, () => {
-        if (this.childSubs.has(key)) {
-          this.childSubs.get(key).unsubscribe();
-          this.childSubs.delete(key);
-        }
-      }))
+      this.children.set(key, value);
+
     } else {
-      this.childMap.set(key, value);
-      this._broadcast();
+      this.children.set(key, new ValueStream(key, value));
     }
+    this._updateStatus();
+    this.childSubs.set(key, this.children.get(key).subscribe((value) => {
+      this._broadcast();
+    }, (error) => {
+    }, () => {
+      if (this.childSubs.has(key)) {
+        this.childSubs.get(key).unsubscribe();
+        this.childSubs.delete(key);
+      }
+    }))
   }
 
   _updateSingleValue(value) {
@@ -258,10 +264,10 @@ class ValueStream {
       throw new Error('cannot update the child value of a closed valueStream');
     }
     if (!this.hasChildren) {
-      return this._emitChildError(key, new Error('attempt to emit a chlild error on a childless ValueStream'))
+      return this._emitChildError(key, new Error('attempt to emit a child error on a childless ValueStream'))
     }
     if (!this.children.has(key)) {
-      return this._emitChildError(key, 'ValueStream ' + this.name + ' has no key ' + key);
+      return this._emitChildError(key, 'ValueStream ' + this.name + ' has no key ' + key, '; existing keys = ', this.children.keys());
     }
 
     const currentValue = this.children.get(key);

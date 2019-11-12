@@ -7,37 +7,45 @@ tap.test('ValueStream', (suite) => {
   suite.test('constructor', (testConstructor) => {
     testConstructor.test('name only', (testN) => {
 
-      const s = new ValueStream('Bob');
+      const nameOnlyStream = new ValueStream('name only stream');
 
-      testN.same(s.name, 'Bob');
-      testN.ok(s.isNew);
-      testN.notOk(s.isActive);
-      testN.notOk(s.hasChildren);
+      testN.same(nameOnlyStream.name, 'name only stream');
+      testN.ok(nameOnlyStream.isNew);
+      testN.notOk(nameOnlyStream.isActive);
+      testN.notOk(nameOnlyStream.hasChildren);
+      testN.notOk(nameOnlyStream.hasValue);
       testN.end();
     });
 
     testConstructor.test('name and value', (testNV) => {
 
-      const valStream = new ValueStream('Bob', 1000);
+      const nvStream = new ValueStream({
+        name: 'name value stream',
+        value: 1000
+      });
 
-      testNV.same(valStream.name, 'Bob');
-      testNV.notOk(valStream.isNew);
-      testNV.ok(valStream.isActive);
-      testNV.notOk(valStream.hasChildren);
-      testNV.same(valStream.value, 1000);
+      testNV.same(nvStream.name, 'name value stream');
+      testNV.notOk(nvStream.isNew);
+      testNV.ok(nvStream.isActive);
+      testNV.notOk(nvStream.hasChildren);
+      testNV.ok(nvStream.hasValue);
+      testNV.same(nvStream.value, 1000);
       testNV.end();
     });
 
     testConstructor.test('name, value, type', (testNVT) => {
 
-      const valStream = new ValueStream('Bob', 1000, 'number');
+      const nvtStream = new ValueStream({
+        name: 'nvt', value: 1000, type: 'number'
+      });
 
-      testNVT.same(valStream.name, 'Bob');
-      testNVT.notOk(valStream.isNew);
-      testNVT.ok(valStream.isActive);
-      testNVT.notOk(valStream.hasChildren);
-      testNVT.same(valStream.value, 1000);
-      testNVT.same(valStream.type, 'number');
+      testNVT.same(nvtStream.name, 'nvt');
+      testNVT.notOk(nvtStream.isNew);
+      testNVT.ok(nvtStream.isActive);
+      testNVT.notOk(nvtStream.hasChildren);
+      testNVT.ok(nvtStream.hasValue);
+      testNVT.same(nvtStream.value, 1000);
+      testNVT.same(nvtStream.type, 'number');
       testNVT.end();
     });
 
@@ -45,7 +53,10 @@ tap.test('ValueStream', (suite) => {
   });
 
   suite.test('single value stream', (testSVStream) => {
-    const valStream = new ValueStream('Bob', 1000);
+    const valStream = new ValueStream({
+      name: 'single value stream',
+      value: 1000
+    });
     // monitor activity
     const values = [];
     const errors = [];
@@ -54,14 +65,14 @@ tap.test('ValueStream', (suite) => {
       return values.push(store.state);
     }, (e) => errors.push(e));
 
-    testSVStream.same(valStream.name, 'Bob');
+    testSVStream.same(valStream.name, 'single value stream');
     testSVStream.notOk(valStream.isNew);
     testSVStream.ok(valStream.isActive);
     testSVStream.notOk(valStream.hasChildren);
     testSVStream.same(valStream.value, 1000);
     testSVStream.same(values, [1000], 'values contains initial startValue');
 
-    valStream.set(2000);
+    valStream.value = 2000;
     testSVStream.same(values, [1000, 2000], 'values contains initial startValue');
     testSVStream.same(valStream.value, 2000);
     s.unsubscribe();
@@ -72,30 +83,62 @@ tap.test('ValueStream', (suite) => {
   });
 
   suite.test('single value stream with type', (testSVStream) => {
-    const valStream = new ValueStream('Bob', 1000, 'number');
+    const svTypedSteam = new ValueStream({
+      name: 'single value stream with type',
+      value: 1000,
+      type: 'number'
+    });
 
     /// monitor activity
     const values = [];
     const errors = [];
-    const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+    const s = svTypedSteam.subscribe(({state}) => values.push(state), (e) => errors.push(e));
 
-    testSVStream.same(valStream.name, 'Bob');
-    testSVStream.notOk(valStream.isNew);
-    testSVStream.ok(valStream.isActive);
-    testSVStream.notOk(valStream.hasChildren);
-    testSVStream.same(valStream.value, 1000);
+    testSVStream.same(svTypedSteam.name, 'single value stream with type');
+    testSVStream.notOk(svTypedSteam.isNew);
+    testSVStream.ok(svTypedSteam.isActive);
+    testSVStream.notOk(svTypedSteam.hasChildren);
+    testSVStream.same(svTypedSteam.value, 1000);
 
     testSVStream.same(values, [1000], 'values contains initial startValue');
 
-    valStream.set('Flanders'); // stupid Flanders
+    svTypedSteam.value = 'Flanders';
     testSVStream.same(values, [1000], 'values contains initial startValue');
-    testSVStream.same(valStream.value, 1000);
+    testSVStream.same(svTypedSteam.value, 1000);
 
     testSVStream.same(errors.length, 1, '1 error caught');
-    testSVStream.same(errors[0].message, "bad set attempt");
+    testSVStream.same(errors[0].message, "attempt to set invalid value");
 
     s.unsubscribe();
     testSVStream.end();
+  });
+
+  suite.test('name children stream', (testNC) => {
+    const ncStream = new ValueStream({
+      name: 'name children', children: {
+        age: 50,
+        name: 'Bob',
+        height: 70, // inches,
+        weight: 200
+      }
+    });
+
+    // monitor activity
+    const values = [];
+    const errors = [];
+    const s = ncStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+
+    testNC.same(errors, []);
+    testNC.same(values, [{age: 50, name: 'Bob', height: 70, weight: 200}]);
+
+    ncStream.set('age', 45);
+    testNC.same(errors, []);
+    testNC.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 45, name: 'Bob', height: 70, weight: 200}
+    ]);
+    s.unsubscribe();
+    testNC.end();
   });
 
   suite.test('parent stream', (testPS) => {
@@ -237,17 +280,17 @@ tap.test('ValueStream', (suite) => {
         ]
       );
 
-            await valStream.actions.addAge(10);
-            await valStream.actions.addAge(10);
-            customActionTest.same(values, [
-                {name: 'Robert Paulson', age: 50, alive: true},
-                {name: 'Robert Paulson', age: 60, alive: true},
-                {name: 'Robert Paulson', age: 70, alive: true},
-                {name: 'Robert Paulson', age: 80, alive: false}
-              ]
-            );
+      await valStream.actions.addAge(10);
+      await valStream.actions.addAge(10);
+      customActionTest.same(values, [
+          {name: 'Robert Paulson', age: 50, alive: true},
+          {name: 'Robert Paulson', age: 60, alive: true},
+          {name: 'Robert Paulson', age: 70, alive: true},
+          {name: 'Robert Paulson', age: 80, alive: false}
+        ]
+      );
 
-            customActionTest.same(valStream.values.age, 80);
+      customActionTest.same(valStream.values.age, 80);
       s.unsubscribe();
 
       customActionTest.end();
@@ -265,6 +308,56 @@ tap.test('ValueStream', (suite) => {
     testSet.ok(valStream.has('age'), 'has new prop');
 
     testSet.end();
+  });
+
+  suite.test('filter', (testFilter) => {
+    const ncStream = new ValueStream({
+      name: 'name children', children: {
+        age: 50,
+        name: 'Bob',
+        height: 70, // inches,
+        weight: 200
+      }
+    });
+
+    // monitor activity
+    const values = [];
+    const subValues = [];
+    const errors = [];
+    const s = ncStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+    const subS = ncStream.filter('name', 'age')
+      .subscribe((v) => {
+        subValues.push(v);
+      });
+
+    testFilter.same(errors, []);
+    testFilter.same(values, [{age: 50, name: 'Bob', height: 70, weight: 200}]);
+    testFilter.same(subValues, [{name: 'Bob', age: 50}]);
+
+    ncStream.do.setHeight(69);
+
+    testFilter.same(errors, []);
+    testFilter.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 50, name: 'Bob', height: 69, weight: 200},
+    ]);
+    // the sub-values shouldn't change because an irrelevant field is changed.
+    testFilter.same(subValues, [{name: 'Bob', age: 50}]);
+
+    ncStream.do.setAge(51);
+    testFilter.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 50, name: 'Bob', height: 69, weight: 200},
+      {age: 51, name: 'Bob', height: 69, weight: 200},
+    ]);
+    // the sub-values DO change because a watched field is changed.
+    testFilter.same(subValues, [
+      {name: 'Bob', age: 50},
+      {name: 'Bob', age: 51},
+    ]);
+    s.unsubscribe();
+    subS.unsubscribe();
+    testFilter.end();
   });
 
   suite.end();

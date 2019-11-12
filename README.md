@@ -6,7 +6,14 @@
 
 ## NOTE ON VALUESTREAMS
 
-this branch contains ValueStreams, which will ultimately replace Stores
+this branch contains ValueStreams, which will ultimately replace Stores.
+Value streams are recursive notes that stream values from either 
+a single value field, OR a map of children that can in turn be ValueStreams
+or general values. 
+
+The significant feature of ValueStreams is that they can be *filtered*;
+you can call `.filter(...field names)` to recieve a stream of sub-values
+of the main valueStram to block out any irrelevant values. 
 
 # Main Documentation
 

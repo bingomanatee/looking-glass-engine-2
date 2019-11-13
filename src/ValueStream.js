@@ -20,28 +20,27 @@ const ABSENT = Symbol('just leaving for a pack of cigarettes');
 const SOLE_VALUE = Symbol('sole_value');
 
 const compare = (v1, v2) => {
-  if (!(v1 === v2)) return false;
-  return _.isEqual(v1, v2);
+  return (v1 === v2) || _.isEqual(v1, v2);
 };
 
 class ValueStream {
 
-  constructor(name, value = ABSENT, actions, parent) {
+  constructor(name, value = ABSENT, actions, type) {
     this._initStream();
     this._value = ABSENT;
+    this._type = ABSENT;
     if (name && is.object(name)) {
       this._argToParam(name);
     } else {
       this.name = name;
       if (value !== ABSENT) {
-        if (is.object(value)) {
-          this.setMany(value);
-        } else {
-          this.value = value;
-        }
+        this.value = value;
       }
       if (actions && is.object(actions)) {
         this.addActions(actions);
+      }
+      if (type && is.string(type) && !this.hasChildren) {
+        this.type = type;
       }
     }
     this.init();
@@ -59,6 +58,11 @@ class ValueStream {
     );
 
     if (arg.children) {
+      console.log('defined ValueStream ', this.name,
+        'with both value AND children - the value will be ignored.');
+      if ('_value' in this) {
+        delete this._value;
+      }
       this.setMany(arg.children);
     }
   }
@@ -116,6 +120,17 @@ class ValueStream {
 
   /********* PROPERTIES **************/
 
+  get type() {
+    if (this._type === ABSENT) {
+      return undefined;
+    }
+    return this._type;
+  }
+
+  set type(t) {
+    this._type = t; // @todo: value check?
+  }
+
   get actions() {
     if (!this._actions) {
       this._actions = {};
@@ -149,14 +164,12 @@ class ValueStream {
           }
         });
       };
-      return this;
     } else {
       this.actions[name] = async (...args) => {
         const result = await resolve(this, fn(this, ...args));
         if (result && is.object(result)) {
           this.setState(result);
         }
-        return this;
       };
     }
     return this;
@@ -171,6 +184,60 @@ class ValueStream {
 
   get stream() {
     return this._stream;
+  }
+
+  get valueStream() {
+    if (!this._valueStream) {
+      this._valueStream = this.stream.pipe(map((stream) => {
+          if (stream.hasChildren) {
+            const out = stream.asObject;
+            return out;
+          }
+          return stream.value;
+        }),
+        distinctUntilChanged((prev, curr) => {
+          const diff = compare(prev, curr);
+          return diff;
+        })
+      );
+    }
+    return this._valueStream;
+  }
+
+  get asObject() {
+    if (!this.hasChildren) {
+      return {value: this.value};
+    }
+    const out = {};
+    this.children.forEach((value, key) => {
+      try {
+        if (value instanceof ValueStream) {
+          if (!value.hasChildren) {
+            out[key] = value.value;
+          } else {
+            out[key] = value.asObject;
+          }
+        } else {
+          out[key] = value;
+        }
+      } catch (err) {
+      }
+    });
+
+    return out;
+  }
+
+  get mapStream() {
+    if (!this._mapStream) {
+      this._mapStream = this.stream.pipe(map((valueStream) => {
+        if (valueStream.hasChildren) {
+          return valueStream.children;
+        }
+        // this is pretty messed up but... whatever.
+        return new Map(['value', this.value]);
+      }));
+    }
+    return this._mapStream;
   }
 
   /**
@@ -219,7 +286,8 @@ class ValueStream {
    */
   set value(newValue) {
     if (!this._constructed && is.object(newValue)) {
-      this.setMany(newValue);
+      this._value = newValue;
+      return;
     }
     if (this.hasChildren) {
       if (Array.isArray(newValue)) {
@@ -275,18 +343,15 @@ class ValueStream {
       .sortBy()
       .value();
 
-    return this.stream.pipe(
-      map((stream) => {
-        return _.pick(stream.values, fieldNames)
+    return this.valueStream.pipe(
+      map((value) => {
+        if (!is.object(value)) {
+          return value;
+        }
+        return _.pick(value, fieldNames);
       }),
       distinctUntilChanged((prev, curr) => {
-        for (let i = 0; i < fieldNames.length; ++i) {
-          const name = fieldNames[i];
-          let v1 = prev[name];
-          let v2 = curr[name];
-          if (!compare(v1, v2)) return false;
-        }
-        return true;
+        return compare(prev, curr);
       })
     )
   }
@@ -347,7 +412,7 @@ class ValueStream {
   /* ******************* METHODS ********************* */
 
   async transact(fn) {
-    if (this.isClosed) {
+    if (this.isComplete) {
       throw new Error('cannot transact a closed valueStream');
     }
     const status = this._status;
@@ -363,18 +428,59 @@ class ValueStream {
     }
     this.status = status;
     this._broadcast();
+    return this;
+  }
+
+  transactSync(fn) {
+    if (this.isComplete) {
+      throw new Error('cannot transact a closed valueStream');
+    }
+    const status = this.status;
+    this._status = STATUS_TRANSACTION;
+
+    const t = this._tCount;
+    this._tCount = t + 1;
+    try {
+      fn();
+    } catch (err) {
+      console.log('transaction error', t, err);
+      this._emitError(err);
+    }
+    this.status = status;
+    this._broadcast();
+    return this;
   }
 
   subscribe(...args) {
-    if (!this.isClosed) {
+    if (this.isComplete) {
+      throw new Error('cannot subscribe to a closed valueStream');
+    } else {
       return this.stream.subscribe(...args);
+    }
+  }
+
+  subscribeToValue(...args) {
+    if (this.isComplete) {
+      throw new Error('cannot subscribe to a closed valueStream');
+    } else {
+      return this.valueStream.subscribe(...args);
+    }
+  }
+
+  subscribeToMap(...args) {
+    if (!this.isComplete) {
+      return this.mapStream.subscribe(...args);
     }
     throw new Error('cannot subscribe to a closed valueStream');
   }
 
-  get(key) {
+  get(key, asValue = true) {
     if (this.has(key)) {
-      return this.children.get(key);
+      const value = this.children.get(key);
+      if (asValue) {
+        return value.value;
+      }
+      return value;
     }
   }
 
@@ -387,25 +493,35 @@ class ValueStream {
    * @param value
    * @param otherArgs
    */
-  set(key = ABSENT, value = ABSENT, ...otherArgs) {
+  set(key = ABSENT, value = ABSENT, ...rest) {
     if (key === ABSENT) {
       console.log('called set on ', this.name, 'with no arguments');
       return;
     }
 
-    if (this.isClosed) {
+    if (this.isComplete) {
       throw new Error('cannot update value of closed stream ' + this.name);
     }
 
-    if (this.hasChildren) {
-      if (is.object(key)) {
-        return this.setMany(key);
+    this.transactSync(() => {
+      if (this.hasChildren) {
+        if (is.string(key)) {
+          this._updateChild(key, value);
+          while (rest.length) {
+            const nextKey = rest.shift();
+            const nextValue = rest.shift();
+            if (is.string(nextKey)) {
+              this._updateChild(nextKey, nextValue);
+            }
+          }
+        } else {
+          console.log('bad key value passed to set:', key, value);
+        }
+      } else {
+        this._value = key;
       }
-
-      this._updateChild(key, value, ...otherArgs);
-    } else {
-      this.value = key;
-    }
+    });
+    return this;
   }
 
   setMany(obj) {
@@ -417,7 +533,11 @@ class ValueStream {
     }
     if (obj instanceof Map) {
       obj.forEach((value, name) => {
-        this._updateChild(name, value, false);
+        if (!this._constructed) {
+          this.addChild(name, value)
+        } else {
+          this._updateChild(name, value);
+        }
       });
     } else {
       Object.keys(obj).forEach((name) => {
@@ -425,11 +545,14 @@ class ValueStream {
         if (!this._constructed) {
           this.addChild(name, objValue)
         } else {
-          this.set(name, objValue, false);
+          this._updateChild(name, objValue);
         }
       })
     }
-    this._broadcast();
+    if (this._constructed) {
+      this._broadcast();
+    }
+    return this;
   }
 
   setState(obj) {
@@ -451,8 +574,7 @@ class ValueStream {
       value = new ValueStream(key, ...args);
       value.parent = this;
     }
-    this.addChild(key, value);
-    return this;
+    return this.addChild(key, value);
   }
 
   /**
@@ -464,17 +586,29 @@ class ValueStream {
     return this.addSubStream(...args);
   }
 
+  _purgeValue() {
+    delete this._value;
+    delete this._type;
+  }
+
   addChild(key, value, type) {
     if (this.children.has(key)) {
       throw new Error('cannot redefine key ' + key)
     }
-    if (type) {
-      this.children.set(key, new ValueStream({
-        name: key,
-        value,
-        type,
-        parent: this
-      }))
+    if (!this.hasChildren && this.hasValue) {
+      console.log('adding a child to ValueStream', this.name, 'will remove its singular value.');
+      this._purgeValue();
+    }
+
+    if (!(value instanceof ValueStream)) {
+      if (type) {
+        value = new ValueStream({
+          name: key,
+          value,
+          type,
+          parent: this
+        })
+      }
     }
     this.children.set(key, value);
 
@@ -488,32 +622,29 @@ class ValueStream {
 
     const subValue = this.children.get(key);
     if (subValue instanceof ValueStream) {
-      this.childSubs.set(key, subValue.subscribe((value) => {
-        this._broadcast();
-      }, (error) => {
-        this({
+      const sub = subValue.subscribe(this._broadcast.bind(this), (error) => {
+        this._emitError({
           message: 'child error:' + _.get(error, 'message', ''),
           child: key,
           error
         })
       }, () => {
-        if (this.childSubs.has(key)) {
-          this.childSubs.get(key).unsubscribe();
-          this.childSubs.delete(key);
+        if (sub) {
+          sub.unsubscribe();
         }
-      }));
+      });
     }
+    return this;
   }
 
   /**
    * set the value of a key. This handles the branch of `.set()` that is for children.
-   *
-   * You can set multiple pairs of arguments in a single stroke with additional arguments,
+   * it does NOT broadcast.
    * reducing the number of broadcasts
    * @param key {string}
    * @param value {any}
    */
-  _updateChild(key = ABSENT, value = ABSENT, ...otherArgs) {
+  _updateChild(key = ABSENT, value = ABSENT) {
     if (key === ABSENT) {
       throw new Error('must call set with arguments');
     }
@@ -527,7 +658,7 @@ class ValueStream {
       throw new Error('ValueStream ' + this.name + ' has no child ' + key + ' -- existing keys [' + Array.from(this.children.keys()).join(',') + ']');
     }
 
-    if (this.isClosed) {
+    if (this.isComplete) {
       throw new Error('cannot update the child value of a closed valueStream');
     }
 
@@ -544,24 +675,11 @@ class ValueStream {
       currentValue.set(value); // the value should broadcast back to this stream automatically
     } else if (currentValue !== value) {
       this.children.set(key, value);
-      if (otherArgs.length) {
-        // false is a special flag to prevent broadcasting -- useful for 'ad hoc transactions'
-        if (otherArgs[0] === false) {
-          return;
-        }
-        // this is a sub-call of a multi-value update
-        while (otherArgs.length > 1) {
-          const [otherName, otherValue, ...remainingArgs] = otherArgs;
-          otherArgs = remainingArgs;
-          this._updateChild(otherName, otherValue, false);
-        }
-      }
-      this._broadcast();
     }
   }
 
   _emitChildError(key, error) {
-    if (!this.isClosed) {
+    if (!this.isComplete) {
       this.stream.error({
         type: 'child error',
         key,
@@ -571,11 +689,16 @@ class ValueStream {
   }
 
   _emitError(err) {
-    if (!this.isClosed) {
-      if (is.string(err)) {
-        err = new Error(err);
+    try {
+      if (!this.isComplete) {
+
+        if (is.string(err)) {
+          err = new Error(err);
+        }
+        this.stream.error(err);
       }
-      this.stream.error(err);
+    } catch (err) {
+      console.log('emit error -- has an error ?', err.message);
     }
   }
 
@@ -622,12 +745,11 @@ class ValueStream {
       return true;
     }
     let isValid = true;
-    if ((is.function(is[this.type]))) {
+    if ((is.fn(is[this.type]))) {
       isValid = is[this.type](value);
     } else {
       console.log('cannot find type ', this.type, 'in', Object.keys(is));
     }
-    console.log('... result: ', isValid);
     return isValid;
   }
 
@@ -654,7 +776,7 @@ class ValueStream {
     return this.status === STATUS_ACTIVE;
   }
 
-  get isClosed() {
+  get isComplete() {
     return this.status === STATUS_CLOSED;
   }
 
@@ -670,9 +792,6 @@ propper(ValueStream)
     onChange(value) {
       this._updateStatus();
     }
-  })
-  .addProp('type', {
-    defaultValue: ABSENT
   })
   .addProp('status', {type: 'symbol', defaultValue: STATUS_NEW})
   .addProp('parent')

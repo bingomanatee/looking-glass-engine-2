@@ -1,406 +1,346 @@
-# looking-glass-engine (LGE)
+# looking-glass-engine (LGE) 3.0 - the ValueStream release
 
 [![Travis][build-badge]][build]
 [![npm package][npm-badge]][npm]
 [![Coveralls][coveralls-badge]][coveralls]
 
-## NOTE ON VALUESTREAMS
 
-this branch contains ValueStreams, which will ultimately replace Stores.
+The 3.0 Looking Glass Engine (LGE) release contains ValueStreams, which will ultimately replace Stores.
 Value streams are recursive notes that stream values from either 
 a single value field, OR a map of children that can in turn be ValueStreams
 or general values. 
 
 The significant feature of ValueStreams is that they can be *filtered*;
-you can call `.filter(...field names)` to recieve a stream of sub-values
-of the main valueStram to block out any irrelevant values. 
+you can call `.filter(...field names)` to receive a stream of sub-values
+of the main ValueStreams or rather to block out change notification from
+all other values. This is analogous to the `connect()` technique that makes Redux such a joy;
+you can selectively filter the output fields to a subset of the original stream.
 
-# Main Documentation
+## Why the new system
 
-Looking glass engine takes the deceptively hard job of maintaining state
-changes and broadcasting updates. 
+Stores were MASSIVELY GREAT and I used it for years to accelerate my efficiency
+in application design. however they had a few minor issues I found troublesome.
 
-It is intended for React, but like RxJS is application agnostic and can be used in any
-development environment (even server side) that requires state management. 
+1. The 'toss-in' nature of properties made it possible to set the property of a
+   property to a badly-typed value -- or worse yet if you're not careful, remove it entirely
+2. It was not easy to observe a set of properties' change, ignoring the updating
+   of other ones; when *any* properties changed, the entire store was broadcast.
+   You could of course use RxJS mixins to refine your results, but it was such
+   a core feature I wanted to directly address it. 
+3. In use it became clear that properties weren't a "nice to have" feature of 
+   stores but were in fact to useful that the need to define a store *without*
+   a fixed schema and set of initialized properties really didn't exist.
+4. Actions encourage you to call multiple `.setName(value)` calls of the Store,
+   which can trigger a lot of updates broadcasts.
+   
+SO the conceit of having a store being "an observable collection of stuff" that 
+if you wanted to, you could define by a schema, really didn't hold water. 
 
-[build-badge]: https://img.shields.io/travis/user/repo/master.png?style=flat-square
-[build]: https://travis-ci.org/user/repo
+The strength of a more aggressively structured map of property/value pairs
+let to a whole new model that was both simpler and more interesting: ValueStreams.
 
-[npm-badge]: https://img.shields.io/npm/v/npm-package.png?style=flat-square
-[npm]: https://www.npmjs.org/package/npm-package
+## Value Streams: A New Beginning
 
-[coveralls-badge]: https://img.shields.io/coveralls/user/repo/master.png?style=flat-square
-[coveralls]: https://coveralls.io/github/user/repo
-
-## What is a Store?
-
-A Store instance is an object has a collection of key/value pairs `.state` and a
-collection of actions `.actions` that change state. 
-
-It conforms to the RXJS Observable pattern; updated state can be monitored 
-by calling `.subscreibe(...)` on a state you instantiate.
-
-```javascript
-import {Store} from '@wonderlandlabs/looking-glass-engine';
-
-const myState = new Store(
-{
-  state: {
-      name: 'garden',
-      flowers: ['rose', 'petunia']
-    },
-  actions: {
-    addFlower (store, flower) {
-      const flowers = [...store.state.flowers, flower];
-     // like redux, you return a mutated version of the store's state to update it
-     return {...store.state, flowers};
-    }
-  }
-}); 
- myState.subscribe((store) => {
- console.log('state is now ', store.state);
-});
- myState.addFlower('lilac');
- // 'state is now', {name: garden, flowers: ['rose', 'petunia', 'lilac']}
-```
-
-In React this can be done in the `componentDidMount()`  handler. 
-
-## State 
-
-State is a POJO that has name-value pairs. It can be as complex or simple as you like, 
-with any level of nesting you need. 
-
-State is initialized to the `.start` property of the constructor config,
-along with any other start values of parameters you define with `.addStateProp(s)`.
-
-while you *can* manually set the state from the outside, this is a *bad idea*.
-State should be changed with actions; also any properties you change won't be 
-immediately registered .
-
-**THE WRONG WAY**
-
-```javascript
-const s = new Store({state: {a: 1, b: 2}});
-s.state.b = 4;
-```
-
-**THE RIGHT WAY**_
-
-```javascript
-
-const s = new Store({state: {a: 1, b: 2},
-actions: {
-  incrementBoth: ({state}) => {
-   let {a, b} = state;
-    a += 1;
-    b += 1;
-    return {...state. a, b};
-}
-}
-})
-
-s.actions.incrementBoth();
-console.log('store state:', s.state);
-// {a: 2, b: 3}
-
-```
-
-### Observing State
-
-There is an RxJS BehaviorStream for each store that emits the entire Store every time
-state is changed. To harvest state change from the Store,
-call `myStore.subscribe(onChange, onError, onComplete)` and extract state from the result:
-
-```javascript
-
-const s = new Store({state: {a: 1, b: 2},
-actions: {
-  incrementBoth: ({state}) => {
-   let {a, b} = state;
-    a += 1;
-    b += 1;
-    return {...state. a, b};
-}
-}
-})
-
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-});
-
-s.actions.incrementBoth();
-
-// 'state is now', {a: 2, b: 3}
-
-```
-
-## Actions
-
-Actions change state in one of three ways:
-
-1. The return value of an action, *if it is not undefined*, replaces the state.
-   This is the "redux pattern" state updating. (with some exceptions)
-2. Actions have access to the store, and so, can call *other actions*. 
-3. BOTH of the above changes can occur from the same Store's action. 
-
-## Action types
-
-There are two of action types: user defined actions and property setters that
-are side effects of addProp. 
-
-### User defined actions
-
-Any action you pass to the actions collection of the store is turned into a mutator;
-the first parameter of the action is the store itself, and the subsequent parameters
-are (optionally) whatever the user submits.
-
-You **DO NOT HAVE** to return the next value of state if you wish to simply change state
-indirectly through calling other actions. if an action doesn't have a return clause
-(returns undefined) then calling it will not *directly* change state. 
-
-If you **DO** return state you must return ALL of state; this is not a "delta update" like
-a react setState(). 
- 
-A`.setState()` method is supplied for "delta updates"; it takes an object and blends
-the objects' values into the state. 
-etState does NOT trigger an update notification! It is intended to only be called
-from inside an action, not from outside the state. 
+A Value Stream is an observable that is either:
+* an observable single value, with an optional type constraint
+* an observable **Map** of values -- children -- which are either:
+  1. a basic untyped value
+  2. a single value ValueStream
+  3. a multi-value ValueStream
   
-As a useful shorthand,
-`s.setState('foo', 'bar')` has the same effect as `s.setState({foo: 'bar'))`.
+The latter is where things get interesting. You can replicate the multi-tenant
+model of Redux with a ValueStream of ValueStreams.
 
-**THE WRONG WAY**
+## `.subscribe(..)`ing to a ValueStream
 
-```javascript
+.subscribing to a ValueStream returns the entire ValueStream every time one(or more)
+of its values are changed. I say "one or more"
 
-const s = new Store({state: {a: 1, b: 2},
-actions: {
-  incrementA: ({state}) => {
-   let {a} = state;
-    a += 1;
-    return {a};
-    }
-  }
-})
+## The Filtering
 
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-});
+Filtering ValueStreams are a snap. Filtering is only relevant to map 
+ValueStreams; you can call `const observable = myStream.filter('name', 'age', 'height')`
+and get an RxJS patterned observable that you can subscribe to when a particular subset of fields
+are updated. This means you can ignore all updates on the *other* fields.
 
-s.actions.incrementA();
+Unlike subscribing to ValueStreams, filtered subscriptions only return 
+the actual sub-values as an object. While I considered creating a new ValueStream
+and returning it, I don't like the ambiguity of creating actions on *that* 
+ValueStream and wondering what side effect(s) it has on the initial one. 
 
-// 'state is now', {a: 2}
-// crap! where is B?
+You can even use filtering to add update hooks to a value stream; filter on one(or multiple)
+fields to engage a synchronous side-effect for a value change:
 
-```
+`myStream.filter('name').subscribe(({name}) => {if (!/^[\w]+$/.test(name) myStream.stream.error('bad name})`;
 
-**THE RIGHT WAY**
+## Setting multiple values at once.
 
-```javascript
+If it weren't so annoyingly asynchronous, React components' setState does have the virtue
+of simultaneously updating a set of values at the same time.
+I added a `.setState({..})` method to Stores and found it quite handy; however
+I don't want people to presume that the behavior and async nature of Reacts's 
+setState is delivered here too, so I have added a `.setMany({...})` which 
+is exactly the same as setState but (and) is synchronous. 
 
-const s = new Store({state: {a: 1, b: 2},
-actions: {
-  incrementA: ({state}) => {
-   let {a} = state;
-    a += 1;
-    return {...state, a};
-    }
-  }
-})
+Also, you can call `myValueStream.set('name', 'Bob', 'age', 10...)` 
+which will update a set of children in one fell swoop and like setMany, 
+will only broadcast once. 
 
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-});
+For single value streams -- which I have not created but you never know --
+you will be using the `.value` property to store the ValueStream's value. 
+you can get -- and set -- this property directly, though of course the latter
+triggers as broadcast. 
 
-s.actions.incrementA();
+Though I don't recommend it, `myValueStream.value = {name: Bob, age: 10}`
+has the same behavior as `myStream.setMany({name: Bob, age: 10})`: a multi-value
+update that triggers a single broadcast. 
 
-// 'state is now', {a: 2, b: 2}
-// better. No missing properties.
+**IN NO CIRCUMSTANCE** do any of these methods or actions cauterize the fields that they don't include ...
 
-```
+## Stricter control of the field set
 
-### property definition actions
+You can't randomly add a field to a ValueStream using `.addMany()`, `.set()` or `.value =`. 
+These methods are **NOT** meant to expand the schema but to work with the currently defined schema.
+The field set is assumed to be fixed and non-extensible through random assignation. 
+Adding a set of good and bad properties with these methods will only accept the previously
+defined values in the definition, and will emit an error in the other circumstances.
 
-Every property defined (see below) implicitly creates a set-method based on the property name:
+To intentionally expand a ValueStream's schema after the fact, call
+`.addChild(name, value)` (or its legacy synonym `addProp` or `.addSubstream(name, ...definition)`;
+like addAction, these calls are meant to parametrically define the stream post-construction. 
+however they are not meant to **REDEFINE** an existing field which will trigger an error
+because it's stupid and wrong. 
 
-```javascript
+Its not advised to separate schema definition from the initial construction of a stream;
+that is wrong and ill=advised. However you might find parametrically expanding a ValueStream
+with functions a useful pattern. 
 
-const s = new State()
-.addStateProp('alpha',1)
-.addStateProp('beta', 2)
-.addStateProp('delta', 3);
+## My continued failure: transactions
 
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-});
+I have tried and failed several times to model transactions. The difficulty in transactions is that 
+they either become blocking (by delaying outside activity til the transaction - action completes)
+confusing (by resetting the value of the stream to its previous state, you may be undoing
+the healthy activity of other actions) or heavy (creating some sort of change-tracked parallel universe
+stream that synchronizes on completion). so while there are transaction options in the API I would emphasize
+*use with caution* -- they are intended only to manage *synchronous* actions in which you have full control 
+of all the state and undoing back to zero is a healthy option for an error-throwing action. 
 
-s.actions.setAlpha(4);
-// 'state is now', {alpha: 4, beta: 2, delta: 3}
+# The API
 
-```
+ValueStream is polymorpic in that you can define it to be a single value observer or a value map observer.
+The latter case is the principle use case so it is what this documentation will focus on. 
 
-State Properties can have type validations thanks to [is.js](http://is.js.org):
+## Constructor({name, type, value | children, actions, parent})
+## Constructor (name, value, actions, type)
 
-```javascript
+The first form of the constructor is preferred. 
 
-const s = new State()
-.addStateProp('alpha',1, 'integer')
-.addStateProp('beta', 'two', 'string')
-.addStateProp('delta', [1, 2, 3], 'array');
-
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-}, (err) => {
-  console.log('error: ', err.message);
-});
-
-s.actions.setAlpha(4);
-// 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3]}
-
-s.actions.setBeta(4);
-// 'error: ', ' bad value set for a: two failed integer'
-// (state is unchanged)
-```
-
-#### Multiple ways to set props
-
-You can set props as chained calls(as above).
-
-You can also set props as a single call, or as  a constructor parameter:
-```javascript
-const s = new State({props: {alpha: {type: 'integer', start: 1}}})
-.addStateProp('beta', 'two', 'string')
-.addStateProps({delta: {start: [1, 2, 3], type: 'array'}});
-
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-}, (err) => {
-  console.log('error: ', err.message);
-});
-
-s.actions.setAlpha(4);
-// 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3]}
-
-s.actions.setBeta(4);
-// 'error: ', ' bad value set for a: two failed integer'
-// (state is unchanged)
-```
-```javascript
-const s = new State()
-.addStateProp('beta', {a: 1, b: 2}, 'object')
-````
-
-#### Advanced Validation
-
-There are multiple forms of the "type" property:
-
-* falsy - no type checking:
-* string: (name of method of is.js)
-* function: expected to throw on bad data
-* array of any of the above
-
-Array tests are done one at a time; so, in the example below, 
-your tests can trust that value is a string before it arrives into the function. 
-
-```javascript
-const s = new State({alpha: {type: 'integer', start: 1}})
-.addStateProp('beta', 'name', ['string',
- (value) => {
-if (value.length < 2) throw new Error('must be at least 2 characters');
-},
-(value) => {
-  if (value.length > 10) throw new Error('must be at no more than 10 characters');
-  }
-])
-.addStateProps({delta: {start :[1, 2, 3], type: [
-        'array',
-        (value) => {
-        if (value.length < 1) throw new Error('value cannot be an empty array')
-        }
-    ]
-  }
-});
-
-s.subscribe(({state}) => {
-  console.log('state is now ', state);
-}, (err) => {
-  console.log('error: ', err.message);
-});
-
-s.actions.setBeta(1);
-// 'state is now', {alpha: 4, beta: 'two', delta: [1, 2, 3];
-
-s.actions.setBeta(100);
-// 'error: ', 'bad value set for beta: 100 failed string'
-
-s.actions.setBeta('a');
-// 'error: ', ' bad value set for beta: value must be at least two characters'
-// (state is unchanged)
-```
-
-## Synchronicity of Actions
-
-Synchronicity is a "fuzzy" thing in Looking Glass engine. The short answer is that
-LGE is *both*.
-
-Actions that return promises are *resolved* and the promise value (if any) updates the state.
-Actions themselves (once processed into the Store object) return a promise -- however
-if the action itself calls property set actions or any other actions that are not
-asynchronous, then the updates are instant, before the promise is resolved. 
-
-If you call an asynchronous action *without waiting for the result* and then call a synchromous 
-action then your resolution is *going to be out of order* and will *not* complete 
-before the resolution of your action:  
-
-If the api below returns [1, 2, 3], then 
+As a side note, setting the value as an object in the constructor will *not* create a map ValueStream;
+only setting the children property will do so. This also means that the only way to initialize a
+map valueStream with children in the constructor is the first form of the constructor (by passing a parameter).
+Otherwise you'll need to define children parametrically, post-construction. 
 
 ```javascript
 
-const s = new State({ actions: { 
-  async loadData( store) {
-       const {data} = await axios.get('http://www.data.com/api')
-      store.setState('data', [...store.state.data, ...data]);
-   },
-   loadAndAppend(store, ...values) {
-       store.actions.loadData();
-       store.actions.setState('data', [...store.state.data, ...values]);
+const actions = {
+    whatYouGoingToDo(v){
+        console.log('my value: ', v.state, 'my type', v.type);
    }
 }
-})
-.addProp('data', [], 'array');
-
-s.actions.loadAndAppend(4, 5, 6)
-    .then(() => {
-    console.log('data is', s.state.data);
-    });
-    // 'data is', 4, 5, 6
+const badBoy = new ValueStream('Bad Boy', 'bad boy', actions, 'string');
+badBoy.do.whatYouGoingToDo();
+// 'my value: ', 'bad boy', 'my type', 'string'
+badBoy
+  .addChild('age', 10)
+  .addChild('weight', 300);
+badBoy.do.whatYouGoingToDo();
+// 'my value: ', {age: 10, weight: 300}, 'my type',  undefined
 ```
-    
-you will *not* see the data from loadData in the console.log because you didn't `await`
-the sub-call to loadData in `loadAndAppend`. 
 
-Below, note that the action call is prefixed with `await` ensuring completion of the async
-action:
+note the constructor value, 'bad boy', and its type definition have been obliterated. 
+that is bad magic. best to simply construct `const badBoy = new ValueStream('Bad Boy')`,
+which never implies single-valuenesss. 
+
+Another example: defining the value in a list of properties defines a single-value ValueStream.
+defining children explicitly in the constructor OR post construction will make that ValueStream
+ a multi-value stream.
+ 
+ ```javascript
+
+const listStream = new ValueStream('list stream', {a: 1, b: 2});
+console.log (typeof(listStream.do.setA));
+// undefined
+
+const paramValue = new ValueStream({name: 'param value stream', value: {a: 1, b: 2}});
+console.log(typeof paramValue.do.setA);
+// undefined
+
+const paramChildren = new ValueStream({name: 'param children stream', children: {a: 1, b: 2}});
+console.log(typeof paramChildren.do.setA);
+// function
+
+```
+So, if you want to have complete control of a ValueStream's value, add properties willy nilly,
+and don't care about type validation use name + value patterns. Otherwise (and I hope you do otherwise)
+define children specifically as a parameter or via `.addChildren(name, value, type)`. 
+
+## Properties
+
+### name: {String}
+
+the name of the ValueStream.
+
+### value: {various}
+### state (identical)
+
+the value of a single-value ValueStream -- **OR** a hydrated object 
+containing name/value pairs of the children.
+Setting the value manually `myStream.value = 3` will update its value 
+*and* broadcast an update(see below);)
+If you want to be cautious, use `.isValid(aValue)` 
+to check the validity of a value before assigning it to value. 
+
+state is added as a legacy property. 
+
+### type: {string} ?
+
+the type of a single-value ValueStream used to validate updates. It is *optional* but if present
+blocks the setting of your ValueStream's value to the wrong type.
+Under the hood it uses the `is` module's type checkers to determine validity. 
+It has no meaning for multi-value ValueStreams.
+
+### actions {Object}
+### do {Object} (identical)
+this is a collection of methods you can add to your stream to add functionality. 
+*do not* attempt to change/add actions directly to these objects! use `.addAction(...)`.
+
+### children {Map} 
+
+A collection of name/value properties of a multi-value ValueStream. Useful for iterations, 
+`.has(name)` checks etc. *do not* manipulate/set to children directly! it won't broadcast 
+changes OR type check values, and deleting value(s)) will F**K you up. 
+
+### hasChildren {boolean}
+### isValue {boolean}
+reflects the storage mode of a ValueStream. Ordinarily only one of these is true. However
+if a ValueStream has neither a value (value is undefined) *nor* children both can be false at the same
+time. (they will never both be *true* though.)
+
+### isNew {boolean}
+### isActive {boolean}
+### isComplete {boolean}
+These properties reflect the *status* of a ValueStream. 
+* A ValueStream that has no value *or* children is "new"; it won't broadcast and is very little fun. 
+* A ValueStream that has a value *or* children is "active".
+* A valueStream that has been completed is "complete"; it shouldn't broadcast or accept changes without 
+errors. 
+
+### stream {BehaviorSubject}
+This is how the ValueStream broadcasts change. If you want very granular control over updates, or to 
+mutate the values before you recieve them, you can `.pipe(..)` from the stream as much as you want.
+There is no circumstances in which this stream can/should be updated once created. 
+
+## valueStream {BehaviorSubject}
+## mapStream {BehaivorSubject}
+Special lazily-instantiated streams that return the value(s) of the ValueStream on changes,
+not the entire ValueStream (as stream does). valueStream always returns an object; mapStream emits
+a copy of the children map; this also means that mapStream will return any sub-streams intact. 
+
+## methods 
+
+### .subscribe(onNext, onErr, onComplete): subscriber
+
+exactly equivalent to `myValueStream.stream.subsccribe(...)`. Adds event hooks that let you know
+when the values have been changed. the event hooks return the *entire* valueStream as a value;
+
+### .subscribeToMap(onNext, onErr, onComplete): subscriber
+### .subscribeToValue(onNext, onErr, onComplete): subscriber
+
+if you only care about the value(s) of the stream you can subscribe to a limited stream of those. 
+.subscribeToMap on a value without children will return a single map `{'value' => value}`.
+
+## .filter(...field names): subscriber
+
+Filter pipes from `.subscribeToValue` and only returns the fields you care about. note that 
+it *will filter the results of a single value object*. Changes to un-requested fields shouldn't 
+trigger broadcasts. 
+
+## complete()
+
+This should shut down the behavior subject and block all value updates; it hasn't been 
+thoroughly tested. 
+
+## addAction(name, fn) 
+Adds a utility function to the `.do` and `.actions` collection. Note, it is wrapped in a hook
+that sets the first property to the ValueStream itself. 
 
 ```javascript
 
-const s = new State({ actions: { 
-  async loadData( store) {
-       const {data} = await axios.get('http://www.data.com/api')
-      store.setState('data', [...store.state.data, ...data]);
-   },
-   async loadAndAppend(store, ...values) {
-       await store.actions.loadData();
-       store.actions.setState('data', [...store.state.data, ...values];
-   }
-}
-})
-.addProp('data', [], 'array');
+      const coord = new ValueStream('coord')
+        .addChild('x', 0, 'number')
+        .addChild('y', 0, 'number')
+        .addAction('transform', (v, xT, yT) => {
+          const x = v.get('x');
+          const y = v.get('y');
+          v.set('x', x + xT, 'y', y + yT);
+        })
+        .addAction('scale', (v, n) => {
+          if (!is.number(n)) {
+            throw new Error('bad scale value')
+          }
+          const x = v.get('x');
+          const y = v.get('y');
+          v.set('x', x * n, 'y', y * n);
+        });
 
-s.actions.loadAndAppend(4, 5, 6)
-    .then(() => {
-    console.log('data is', s.state.data);
-    });
-    // 'data is', 1, 2, 3, 4, 5, 6
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = coord.subscribeToValue((xy) => {
+        console.log(xy);
+      });
+	  
+	  // {x: 0, y: 0}
+
+      coord.do.transform(2, 3);
+      // {x: 2, y: 3}
+
+      coord.do.transform(-1, 0);
+      // {x: 1, y: 3}
+      
+      coord.do.scale(2);
+      // {x: 2, y: 6}
+
 ```
+
+a few things to note:
+* `.get(name)` returns the raw value of a child field; even if it is itself a valueStream
+* `.set(aField, aValue, bField, bValue...)` will only broadcast once. 
+* When calling an action you only have to define the parameters - the recipient function will get the stream as the first argument.
+  This means you should never (have to) refer to "this" inside an action. 
+  
+### get(fieldName{string}, asValue = true) : {value}
+
+gets a named child. By default extracts the value for a sub-stream.
+
+### set(field{string}, value [,field2, value2...]) <curried>
+
+sets one (or more) child values. 
+
+### setMany (values{object}) <curried>
+
+updates the object with 
+
+## has(field {string}) : boolean
+
+tests the children collection for the existence of a field
+
+### async transact(fn{function}) : <curried>
+
+executes a function asyncronously, then broadcasts when complete. it will not broadcast *until* the function 
+is completely resolved. 
+
+### transactSync(fn): <curried>
+
+the synchronous version of transact. 
+

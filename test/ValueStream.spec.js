@@ -1,5 +1,6 @@
 const tap = require('tap');
 const _ = require('lodash');
+const is = require('is');
 
 const {ValueStream} = require('./../lib/index');
 
@@ -49,6 +50,58 @@ tap.test('ValueStream', (suite) => {
       testNVT.end();
     });
 
+    testConstructor.test('redefinition', (redef) => {
+      const feedback = [];
+
+      const actions = {
+        whatYouGoingToDo(v) {
+          feedback.push(['my value: ', v.state, 'my type', v.type]);
+        }
+      };
+
+      const badBoy = new ValueStream('Bad Boy', 'bad boy', actions, 'string');
+      badBoy.do.whatYouGoingToDo();
+// 'my value: ', 'bad boy', 'my type', 'string'
+      badBoy.addChild('age', 10)
+        .addChild('weight', 300);
+      badBoy.do.whatYouGoingToDo();
+
+      redef.same(feedback,
+        [
+          [
+            "my value: ",
+            "bad boy",
+            "my type",
+            "string",
+          ],
+          [
+            "my value: ",
+            {
+              "age": 10,
+              "weight": 300,
+            },
+            "my type",
+            undefined,
+          ],
+        ]
+      );
+      redef.end();
+    });
+
+    testConstructor.test('value vs object', (vvo) => {
+
+      const listStream = new ValueStream('list stream', {a: 1, b: 2});
+      vvo.ok(is.undef(listStream.do.setA));
+
+      const paramValue = new ValueStream({name: 'param value stream', value: {a: 1, b: 2}});
+      vvo.ok(is.undef(paramValue.do.setA));
+
+      const paramChildren = new ValueStream({name: 'param children stream', children: {a: 1, b: 2}});
+      vvo.ok(is.fn(paramChildren.do.setA));
+
+      vvo.end();
+    });
+
     testConstructor.end();
   });
 
@@ -61,8 +114,8 @@ tap.test('ValueStream', (suite) => {
     const values = [];
     const errors = [];
 
-    const s = valStream.subscribe((store) => {
-      return values.push(store.state);
+    const s = valStream.subscribeToValue((state) => {
+      return values.push(state);
     }, (e) => errors.push(e));
 
     testSVStream.same(valStream.name, 'single value stream');
@@ -92,7 +145,7 @@ tap.test('ValueStream', (suite) => {
     /// monitor activity
     const values = [];
     const errors = [];
-    const s = svTypedSteam.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+    const s = svTypedSteam.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
 
     testSVStream.same(svTypedSteam.name, 'single value stream with type');
     testSVStream.notOk(svTypedSteam.isNew);
@@ -126,7 +179,7 @@ tap.test('ValueStream', (suite) => {
     // monitor activity
     const values = [];
     const errors = [];
-    const s = ncStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+    const s = ncStream.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
 
     testNC.same(errors, []);
     testNC.same(values, [{age: 50, name: 'Bob', height: 70, weight: 200}]);
@@ -150,7 +203,7 @@ tap.test('ValueStream', (suite) => {
     // monitor activity
     const values = [];
     const errors = [];
-    const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+    const s = valStream.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
 
     testPS.same(values, [{name: 'Robert Paulson', age: 50, alive: false}], 'stream has all the props');
     testPS.same(valStream.values, {name: 'Robert Paulson', age: 50, alive: false}, 'starts with initial values');
@@ -176,7 +229,7 @@ tap.test('ValueStream', (suite) => {
       // monitor activity
       const values = [];
       const errors = [];
-      const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+      const s = valStream.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
 
       saTest.same(values, [{name: 'Robert Paulson', age: 50, alive: false}], 'stream has all the props');
       saTest.same(valStream.values, {name: 'Robert Paulson', age: 50, alive: false}, 'starts with initial values');
@@ -210,7 +263,7 @@ tap.test('ValueStream', (suite) => {
       // monitor activity
       const values = [];
       const errors = [];
-      const s = valStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+      const s = valStream.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
 
       customActionTest.same(values, [{name: 'Robert Paulson', age: 50, alive: true}],
         'stream has all the props');
@@ -260,8 +313,8 @@ tap.test('ValueStream', (suite) => {
       // monitor activity
       const values = [];
       const errors = [];
-      const s = valStream.subscribe((store) => {
-        return values.push(store.state);
+      const s = valStream.subscribeToValue((state) => {
+        values.push(state);
       }, (e) => {
         return errors.push(e);
       });
@@ -294,6 +347,68 @@ tap.test('ValueStream', (suite) => {
       s.unsubscribe();
 
       customActionTest.end();
+    });
+
+    actionsTest.test('with set', async (caSetTest) => {
+      const coord = new ValueStream('coord')
+        .addChild('x', 0, 'number')
+        .addChild('y', 0, 'number')
+        .addAction('transform', (v, xT, yT) => {
+          if (!is.number(xT)) {
+            throw new Error(`bad transform x value ${xT}`)
+          }
+
+          if (!is.number(yT)) {
+            throw new Error(`bad transform x value ${yT}`)
+          }
+
+          const x = v.get('x');
+          const y = v.get('y');
+          v.set('x', x + xT, 'y', y + yT);
+        })
+        .addAction('scale', (v, n) => {
+          if (!is.number(n)) {
+            throw new Error('bad scale value')
+          }
+          const x = v.get('x');
+          const y = v.get('y');
+          v.set('x', x * n, 'y', y * n);
+        });
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = coord.subscribeToValue((xy) => {
+        values.push(xy);
+      }, (e) => {
+        return errors.push(e);
+      });
+
+      caSetTest.same(values, [{x: 0, y: 0}]);
+      coord.do.transform(2, 3);
+      caSetTest.same(values, [
+        {x: 0, y: 0},
+        {x: 2, y: 3}
+      ]);
+
+      coord.do.transform(-1, 0);
+      caSetTest.same(values, [
+        {x: 0, y: 0},
+        {x: 2, y: 3},
+        {x: 1, y: 3}
+      ]);
+
+      coord.do.scale(2);
+      caSetTest.same(values, [
+        {x: 0, y: 0},
+        {x: 2, y: 3},
+        {x: 1, y: 3},
+        {x: 2, y: 6}
+      ]);
+
+      s.unsubscribe();
+
+      caSetTest.end();
     });
 
     actionsTest.end();

@@ -1,12 +1,8 @@
 import _ from 'lodash';
 import propper from '@wonderlandlabs/propper'
-import uuid from 'uuid';
 import {BehaviorSubject, EMPTY} from "rxjs";
 import {map, distinctUntilChanged} from 'rxjs/operators';
 import is from 'is';
-import makeStoreState, {STORE_STATE_ERROR, STORE_STATE_RUNNING} from './makeStoreState';
-import nameRegex from './nameRegex';
-import validate from './validate';
 import resolve from './resolve';
 import capFirst from './capFirst';
 

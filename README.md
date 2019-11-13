@@ -4,14 +4,12 @@
 [![npm package][npm-badge]][npm]
 [![Coveralls][coveralls-badge]][coveralls]
 
-
 The 3.0 Looking Glass Engine (LGE) release contains ValueStreams, which will ultimately replace Stores.
 Value streams are recursive notes that stream values from either 
 a single value field, OR a map of children that can in turn be ValueStreams
 or general values. 
 
-The significant feature of ValueStreams is that they can be *filtered*;
-you can call `.filter(...field names)` to receive a stream of sub-values
+ValueStreams can be *filtered*; call `.filter(...field names)` to receive a stream of sub-values
 of the main ValueStreams or rather to block out change notification from
 all other values. This is analogous to the `connect()` technique that makes Redux such a joy;
 you can selectively filter the output fields to a subset of the original stream.
@@ -53,8 +51,13 @@ model of Redux with a ValueStream of ValueStreams.
 
 ## `.subscribe(..)`ing to a ValueStream
 
-.subscribing to a ValueStream returns the entire ValueStream every time one(or more)
-of its values are changed. I say "one or more"
+There are multiple sucbscription options. 
+
+* `.subscribe()` to a ValueStream returns the entire ValueStream every time one(or more)
+  of its values are changed. (this is the reccommended method, as you have full access 
+  to the entire ValueStream in the listener.)
+* `subscribeToValue` returns the  value/children as an object *ONLY* to all listeners. 
+* `subscribeToMap` returns a nested map of the children. 
 
 ## The Filtering
 
@@ -136,8 +139,9 @@ The latter case is the principle use case so it is what this documentation will 
 The first form of the constructor is preferred. 
 
 As a side note, setting the value as an object in the constructor will *not* create a map ValueStream;
-only setting the children property will do so. This also means that the only way to initialize a
-map valueStream with children in the constructor is the first form of the constructor (by passing a parameter).
+only setting the children property will do so. 
+This also means that the only way to initialize a ValueStream with children in the constructor 
+is the first form of the constructor (by passing a parameter).
 Otherwise you'll need to define children parametrically, post-construction. 
 
 ```javascript
@@ -157,9 +161,7 @@ badBoy.do.whatYouGoingToDo();
 // 'my value: ', {age: 10, weight: 300}, 'my type',  undefined
 ```
 
-note the constructor value, 'bad boy', and its type definition have been obliterated. 
-that is bad magic. best to simply construct `const badBoy = new ValueStream('Bad Boy')`,
-which never implies single-valuenesss. 
+The constructor value, 'bad boy', and its type definition have been obliterated. 
 
 Another example: defining the value in a list of properties defines a single-value ValueStream.
 defining children explicitly in the constructor OR post construction will make that ValueStream
@@ -175,6 +177,7 @@ const paramValue = new ValueStream({name: 'param value stream', value: {a: 1, b:
 console.log(typeof paramValue.do.setA);
 // undefined
 
+// THIS IS THE RIGHT WAY TO ADD CHLILDREN IN THE CONSTRUCTOR
 const paramChildren = new ValueStream({name: 'param children stream', children: {a: 1, b: 2}});
 console.log(typeof paramChildren.do.setA);
 // function
@@ -184,23 +187,54 @@ So, if you want to have complete control of a ValueStream's value, add propertie
 and don't care about type validation use name + value patterns. Otherwise (and I hope you do otherwise)
 define children specifically as a parameter or via `.addChildren(name, value, type)`. 
 
-## Properties
+# Properties
 
-### name: {String}
-
-the name of the ValueStream.
+## Value properties
 
 ### value: {various}
 ### state (identical)
 
-the value of a single-value ValueStream -- **OR** a hydrated object 
+The value of a single-value ValueStream -- **OR** a hydrated object 
 containing name/value pairs of the children.
 Setting the value manually `myStream.value = 3` will update its value 
 *and* broadcast an update(see below);)
 If you want to be cautious, use `.isValid(aValue)` 
 to check the validity of a value before assigning it to value. 
-
 state is added as a legacy property. 
+
+### children {Map} 
+
+A collection of name/value properties of a multi-value ValueStream. Useful for iterations, 
+`.has(name)` checks etc. *do not* manipulate/set to children directly! it won't broadcast 
+changes OR type check values, and deleting value(s)) will F**K you up. 
+
+`.children` may contain a mix of ValueStreams and values.
+.asMap` or `.asObject` is a cleaner way to access the values of a ValueStream as they will compress
+out any ValueStreams from the return value. 
+
+
+## asObject: {Object}
+
+The values of the stream as an object. 
+Nested ValueStreams return their value, or their `.asObject` property if they have children. 
+
+## asMap: {Map}
+
+The values of the stream as a map. 
+Nested ValueStreams return their value, or their `.asMap` property if they have children. 
+This is what is returned by the `.subscribeToMap` observable function
+
+## Information/introspection properties
+
+### name: {String}
+
+The name of the ValueStream.
+
+### hasChildren {boolean}
+### isValue {boolean}
+reflects the storage mode of a ValueStream. Ordinarily only one of these is true. However
+if a ValueStream has neither a value (value is undefined) *nor* children both can be false at the same
+time. (they will never both be *true* though.)
 
 ### type: {string} ?
 
@@ -214,44 +248,40 @@ It has no meaning for multi-value ValueStreams.
 this is a collection of methods you can add to your stream to add functionality. 
 *do not* attempt to change/add actions directly to these objects! use `.addAction(...)`.
 
-### children {Map} 
-
-A collection of name/value properties of a multi-value ValueStream. Useful for iterations, 
-`.has(name)` checks etc. *do not* manipulate/set to children directly! it won't broadcast 
-changes OR type check values, and deleting value(s)) will F**K you up. 
-
-### hasChildren {boolean}
-### isValue {boolean}
-reflects the storage mode of a ValueStream. Ordinarily only one of these is true. However
-if a ValueStream has neither a value (value is undefined) *nor* children both can be false at the same
-time. (they will never both be *true* though.)
-
 ### isNew {boolean}
 ### isActive {boolean}
 ### isComplete {boolean}
 These properties reflect the *status* of a ValueStream. 
 * A ValueStream that has no value *or* children is "new"; it won't broadcast and is very little fun. 
 * A ValueStream that has a value *or* children is "active".
-* A valueStream that has been completed is "complete"; it shouldn't broadcast or accept changes without 
+* A streamOfValues that has been completed is "complete"; it shouldn't broadcast or accept changes without 
 errors. 
 
+It may be useful to check isActive after an async call in order to terminate mid-action when
+the ValueStream may be terminated. 
+
+## Streams
+
 ### stream {BehaviorSubject}
+
 This is how the ValueStream broadcasts change. If you want very granular control over updates, or to 
 mutate the values before you recieve them, you can `.pipe(..)` from the stream as much as you want.
 There is no circumstances in which this stream can/should be updated once created. 
 
-## valueStream {BehaviorSubject}
+## streamOfValues {BehaviorSubject}
 ## mapStream {BehaivorSubject}
-Special lazily-instantiated streams that return the value(s) of the ValueStream on changes,
-not the entire ValueStream (as stream does). valueStream always returns an object; mapStream emits
+Streams that return the value(s) of the ValueStream on changes,
+not the entire ValueStream (as `stream` does). streamOfValues always returns an object; mapStream emits
 a copy of the children map; this also means that mapStream will return any sub-streams intact. 
 
-## methods 
+# Methods 
+
+## Stream methods 
 
 ### .subscribe(onNext, onErr, onComplete): subscriber
 
 exactly equivalent to `myValueStream.stream.subsccribe(...)`. Adds event hooks that let you know
-when the values have been changed. the event hooks return the *entire* valueStream as a value;
+when the values have been changed. the event hooks return the *entire* streamOfValues as a value;
 
 ### .subscribeToMap(onNext, onErr, onComplete): subscriber
 ### .subscribeToValue(onNext, onErr, onComplete): subscriber
@@ -264,15 +294,25 @@ if you only care about the value(s) of the stream you can subscribe to a limited
 Filter pipes from `.subscribeToValue` and only returns the fields you care about. note that 
 it *will filter the results of a single value object*. Changes to un-requested fields shouldn't 
 trigger broadcasts. 
+Under the hood uses `distinctUntilChanged(_.isEqual)` to only return unique values. 
 
-## complete()
+### complete()
 
-This should shut down the behavior subject and block all value updates; it hasn't been 
-thoroughly tested. 
+This shuts down the behavior subject and block all value updates; it hasn't been 
+thoroughly tested. It sets `.isCompleted` to true. 
 
-## addAction(name, fn) 
-Adds a utility function to the `.do` and `.actions` collection. Note, it is wrapped in a hook
-that sets the first property to the ValueStream itself. 
+## Definition properties
+
+### addAction(name, fn) 
+Adds a utility function to the `.do` and `.actions` collection. 
+The is wrapped in a hook that sets the first property to the ValueStream itself. 
+
+The return value of actions is ignored -- unless it is a function or promise, 
+in which case it is unravelled. (see "Resolving Actions" below)
+
+Because actions don't(shouldn't) use 'this' 
+as the important context is passed as the first property,
+they can be passed in as React event hooks without any need to bind them. 
 
 ```javascript
 
@@ -314,18 +354,21 @@ that sets the first property to the ValueStream itself.
 ```
 
 a few things to note:
-* `.get(name)` returns the raw value of a child field; even if it is itself a valueStream
+* `.get(name)` returns the raw value of a child field; even if it is itself a streamOfValues
 * `.set(aField, aValue, bField, bValue...)` will only broadcast once. 
 * When calling an action you only have to define the parameters - the recipient function will get the stream as the first argument.
   This means you should never (have to) refer to "this" inside an action. 
   
+## Mutation methods
+
 ### get(fieldName{string}, asValue = true) : {value}
 
 gets a named child. By default extracts the value for a sub-stream.
 
 ### set(field{string}, value [,field2, value2...]) <curried>
 
-sets one (or more) child values. 
+sets one (or more) child values. uses `.transactionSync` under the hood to broadcast once, no matter
+how many children are updated. 
 
 ### setMany (values{object}) <curried>
 
@@ -335,12 +378,115 @@ updates the object with
 
 tests the children collection for the existence of a field
 
+## Transactional methods
+
+Transactional methods attempt to control the flow of information out of the streams by
+muffling all update broadcasts until you have done a series of changes. 
+
+Note that transactional methods *always* broadcast after completion of their input function regardless
+of whether any actual changes have been made! 
+
 ### async transact(fn{function}) : <curried>
 
-executes a function asyncronously, then broadcasts when complete. it will not broadcast *until* the function 
-is completely resolved. 
+Executes a function asynchronously, then broadcasts when complete.
+It will not broadcast *until* the function is completely resolved. 
 
 ### transactSync(fn): <curried>
 
-the synchronous version of transact. 
+The synchronous version of transact. 
 
+# Resolving Actions
+
+Actions are *optionally asynchronous*. By default they are synchronous - the chidlren's `set[ChildName]'`
+occur in real time and will broadcast as soon as they are called (unless inside a `.transact(fn)`). 
+
+Actions can be async, in which case they will resolve all awaited calls inside them before returning. 
+
+If you return a function or a promise, they are *resolved* before the action's return value is emitted. 
+That is:
+
+* a function is called, and *it's* return value is resolved; 
+* a promise is completed and *it's* return value is resolved. 
+
+Any other return value is *ignored*. Return values no longer are applied to state, as in practice,
+actions and other mutational methods are fully adequate ways to change the state of a ValueStream.
+
+You can if you want call a promise INSIDE an action and wait for it using async methods ... OR NOT. 
+If for instance you want to push a value to an API and you don't care about getting its feedback
+(or at least *waiting* to get it's feedback) you don't need to interrupt flow. 
+
+## Be careful around action flows
+
+You don't have to `await` an action; but if you do not you are accepting the possibility that 
+your action stream may resolve asyncronously at an indeterminate point in the future -- or throw errors. 
+
+```javascript
+
+const syncStream = new ValueStream('sync stream')
+  .addChild('a', 1)
+  .addChild('b', 3)
+  .addAction('addAtoB', (store) => {
+    const a = store.get('a');
+    const b = store.get('b');
+    store.do.setB(a + b);
+  })
+  .addAction('asyncAddAtoB', async (store) => {
+    const a = store.get('a');
+    const b = store.get('b');
+    // because the promise is returned, it WILL be resolved before the
+    // return value of the action is resolved.
+    return new Promise((done) => setTimeout(done, 300))
+      .then(() => {
+        store.do.setB(a + b);
+      });
+  })
+  .addAction('asyncDelayedAddAtoBleaky', async (store) => {
+    const a = store.get('a');
+    const b = store.get('b');
+    // note we neither wait for the promise to resolve NOR return the promise
+    new Promise((done) => setTimeout(done, 300))
+      .then(() => {
+        store.do.setB(a + b);
+      });
+  });
+
+syncTest.same(syncStream.children.get('a'), 1, 'a is 1');
+console.log(syncStream.get('b')) 
+// 3
+
+syncStream.do.addAtoB();
+console.log(syncStream.get('b')) 
+// 4
+
+syncStream.do.asyncDelayedAddAtoBleaky();
+console.log(syncStream.get('b')) 
+// 4
+// the promise inside the 'leaky' action is not awaited;
+// therefore it will resolve when it wants to, not before the end of the action
+
+await new Promise((done) => setTimeout(done, 500));
+console.log(syncStream.get('b')) 
+// 5
+
+await syncStream.do.asyncDelayedAddAtoBleaky();
+console.log(syncStream.get('b')) 
+// 5
+await new Promise((done) => setTimeout(done, 500));
+// even await-ing an action won't work if the action itself has
+// not been designed to wait for its sub-threads to resolve.
+console.log(syncStream.get('b')) 
+// 6
+
+await syncStream.do.asyncAddAtoB()
+// since we are waiting for a non-leaky async, we should get the results
+// after the await resolution.
+console.log(syncStream.get('b')) 
+// 7
+
+````
+
+so take care with async: if you want to know for sure that an async promise has resolved 
+by the end of the action, `await` it in the body of the action 
+or return the promise as the last line of the action.
+
+And you *must* await the action in the calling context.

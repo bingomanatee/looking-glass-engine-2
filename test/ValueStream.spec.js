@@ -411,6 +411,105 @@ tap.test('ValueStream', (suite) => {
       caSetTest.end();
     });
 
+    actionsTest.test('async actions', (asyncTest) => {
+      asyncTest.test('sync calls', async (syncTest) => {
+
+        const syncStream = new ValueStream('sync stream')
+          .addChild('a', 1)
+          .addChild('b', 2)
+          .addAction('addAtoB', (store) => {
+            const a = store.get('a');
+            const b = store.get('b');
+            store.do.setB(a + b);
+          })
+          .addAction('asyncAddAtoB', async (store) => {
+            const a = store.get('a');
+            const b = store.get('b');
+            store.do.setB(a + b);
+          })
+          .addAction('asyncDelayedAddAtoB', async (store) => {
+            const a = store.get('a');
+            const b = store.get('b');
+            await new Promise((done) => setTimeout(done, 300));
+            store.do.setB(a + b);
+          });
+
+        syncTest.same(syncStream.children.get('a'), 1, 'a is 1');
+        syncTest.same(syncStream.get('b'), 2, 'b is 2');
+        syncStream.do.addAtoB();
+        syncTest.same(syncStream.get('b'), 3, 'b is changed to 3');
+
+        syncStream.do.asyncAddAtoB();
+        // even async functions resolve immediately if they don't actually have promises
+        syncTest.same(syncStream.get('b'), 4, 'b is changed to 4');
+
+        syncStream.do.asyncDelayedAddAtoB();
+        syncTest.same(syncStream.get('b'), 4, 'b has not yet changed to 5');
+        await new Promise((done) => setTimeout(done, 500));
+        syncTest.same(syncStream.get('b'), 5, 'b has changed to 5');
+
+        syncTest.end();
+      });
+      asyncTest.test('leaky async calls', async (syncTest) => {
+
+        const syncStream = new ValueStream('sync stream')
+          .addChild('a', 1)
+          .addChild('b', 3)
+          .addAction('addAtoB', (store) => {
+            const a = store.get('a');
+            const b = store.get('b');
+            store.do.setB(a + b);
+          })
+          .addAction('asyncAddAtoB', async (store) => {
+            const a = store.get('a');
+            const b = store.get('b');
+            // because the promise is returned, it WILL be resolved before the
+            // return value of the action is resolved.
+            return new Promise((done) => setTimeout(done, 300))
+              .then(() => {
+                store.do.setB(a + b);
+              });
+          })
+          .addAction('asyncDelayedAddAtoBleaky', async (store) => {
+            const a = store.get('a');
+            const b = store.get('b');
+            // note we neither wait for the promise to resolve NOR return the promise
+            new Promise((done) => setTimeout(done, 300))
+              .then(() => {
+                store.do.setB(a + b);
+              });
+          });
+
+        syncTest.same(syncStream.children.get('a'), 1, 'a is 1');
+        syncTest.same(syncStream.get('b'), 3, 'b is 3');
+        syncStream.do.addAtoB();
+        syncTest.same(syncStream.get('b'), 4, 'b is changed to 4');
+
+        syncStream.do.asyncDelayedAddAtoBleaky();
+        syncTest.same(syncStream.get('b'), 4, 'b has not yet changed to 5');
+        // the promise inside the 'leaky' action is not awaited;
+        // therefore it will resolve when it wants to, not before the end of the action
+
+        await new Promise((done) => setTimeout(done, 500));
+        syncTest.same(syncStream.get('b'), 5, 'b has changed to 5');
+
+        await syncStream.do.asyncDelayedAddAtoBleaky();
+        syncTest.same(syncStream.get('b'), 5, 'b has not yet changed to 6');
+        await new Promise((done) => setTimeout(done, 500));
+        // even await-ing an action won't work if the action itself has
+        // not been designed to wait for its sub-threads to resolve.
+        syncTest.same(syncStream.get('b'), 6, 'b has changed to 6');
+
+        await syncStream.do.asyncAddAtoB()
+        // since we are waiting for a non-leaky async, we should get the results
+        // after the await resolution.
+        syncTest.same(syncStream.get('b'), 7, 'b has changed to 7');
+
+        syncTest.end();
+      });
+
+      asyncTest.end();
+    });
     actionsTest.end();
   });
 

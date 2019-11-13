@@ -20,6 +20,9 @@ const ABSENT = Symbol('just leaving for a pack of cigarettes');
 const SOLE_VALUE = Symbol('sole_value');
 
 const compare = (v1, v2) => {
+  if (v1 === v2) {
+    return true;
+  }
   return (v1 === v2) || _.isEqual(v1, v2);
 };
 
@@ -74,7 +77,7 @@ class ValueStream {
 
   _initStream() {
     if (this._stream) {
-      console.log('valueStream stream cannot be reset');
+      console.log('streamOfValues stream cannot be reset');
       return;
     }
     this._stream = new BehaviorSubject(this);
@@ -186,7 +189,7 @@ class ValueStream {
     return this._stream;
   }
 
-  get valueStream() {
+  get streamOfValues() {
     if (!this._valueStream) {
       this._valueStream = this.stream.pipe(map((stream) => {
           if (stream.hasChildren) {
@@ -227,14 +230,32 @@ class ValueStream {
     return out;
   }
 
+  get asMap() {
+    // this is pretty messed up but... whatever.
+    if (!this.hasChildren) {
+      return new Map(['value', this.value]);
+    }
+    const map = new Map();
+    this.children.forEach((value, key) => {
+      if (value instanceof ValueStream) {
+        if (value.hasChildren) {
+          map.set(key, value.asMap())
+        } else {
+          map.set(key, value.value);
+        }
+      } else {
+        map.set(key, value);
+      }
+    });
+    return map;
+  }
+
   get mapStream() {
     if (!this._mapStream) {
       this._mapStream = this.stream.pipe(map((valueStream) => {
         if (valueStream.hasChildren) {
-          return valueStream.children;
+          return valueStream.asMap;
         }
-        // this is pretty messed up but... whatever.
-        return new Map(['value', this.value]);
       }));
     }
     return this._mapStream;
@@ -343,7 +364,7 @@ class ValueStream {
       .sortBy()
       .value();
 
-    return this.valueStream.pipe(
+    return this.streamOfValues.pipe(
       map((value) => {
         if (!is.object(value)) {
           return value;
@@ -413,7 +434,7 @@ class ValueStream {
 
   async transact(fn) {
     if (this.isComplete) {
-      throw new Error('cannot transact a closed valueStream');
+      throw new Error('cannot transact a closed streamOfValues');
     }
     const status = this._status;
     this._status = STATUS_TRANSACTION;
@@ -433,7 +454,7 @@ class ValueStream {
 
   transactSync(fn) {
     if (this.isComplete) {
-      throw new Error('cannot transact a closed valueStream');
+      throw new Error('cannot transact a closed streamOfValues');
     }
     const status = this.status;
     this._status = STATUS_TRANSACTION;
@@ -453,7 +474,7 @@ class ValueStream {
 
   subscribe(...args) {
     if (this.isComplete) {
-      throw new Error('cannot subscribe to a closed valueStream');
+      throw new Error('cannot subscribe to a closed streamOfValues');
     } else {
       return this.stream.subscribe(...args);
     }
@@ -461,9 +482,9 @@ class ValueStream {
 
   subscribeToValue(...args) {
     if (this.isComplete) {
-      throw new Error('cannot subscribe to a closed valueStream');
+      throw new Error('cannot subscribe to a closed streamOfValues');
     } else {
-      return this.valueStream.subscribe(...args);
+      return this.streamOfValues.subscribe(...args);
     }
   }
 
@@ -471,16 +492,26 @@ class ValueStream {
     if (!this.isComplete) {
       return this.mapStream.subscribe(...args);
     }
-    throw new Error('cannot subscribe to a closed valueStream');
+    throw new Error('cannot subscribe to a closed streamOfValues');
   }
 
   get(key, asValue = true) {
+    if (!this.hasChildren) {
+      if (asValue) {
+        if (is.object(this.value) && key in this.value) {
+          return this.value[key];
+        }
+      }
+      console.log('get(', key, ') called on a childless ValueStream', ths.name, 'with value', this.value);
+    }
     if (this.has(key)) {
       const value = this.children.get(key);
-      if (asValue) {
+      if (asValue && (value instanceof ValueStream)) {
         return value.value;
       }
       return value;
+    } else {
+      console.log('get -- cannot find key ', key, 'in', this.children);
     }
   }
 
@@ -560,6 +591,7 @@ class ValueStream {
   }
 
   has(key) {
+    if (!this.hasChildren) return false;
     // note will hit EMPTY_MAP for single value
     return this.children.has(key);
   }
@@ -596,29 +628,33 @@ class ValueStream {
       throw new Error('cannot redefine key ' + key)
     }
     if (!this.hasChildren && this.hasValue) {
-      console.log('adding a child to ValueStream', this.name, 'will remove its singular value.');
+      console.log('adding a child', key, 'to ValueStream', this.name, 'will remove its singular value.');
       this._purgeValue();
     }
 
-    if (!(value instanceof ValueStream)) {
-      if (type) {
-        value = new ValueStream({
-          name: key,
-          value,
-          type,
-          parent: this
-        })
-      }
+    if (type && (!(value instanceof ValueStream))) {
+      value = new ValueStream({
+        name: key,
+        value,
+        type,
+        parent: this
+      })
     }
+
     this.children.set(key, value);
 
     this._updateStatus();
 
-    this.addAction('set' + capFirst(key),
-      (store, value) => {
-        this.set(key, value);
-        return false;
-      });
+    const setMethodName = 'set' + capFirst(key);
+    try {
+      this.addAction(setMethodName,
+        (store, value) => {
+          this.set(key, value);
+          return false;
+        });
+    } catch (err) {
+      console.log('adding a child property ', key, 'but NOT a set method because ', setMethodName, ' is already an action')
+    }
 
     const subValue = this.children.get(key);
     if (subValue instanceof ValueStream) {
@@ -659,7 +695,7 @@ class ValueStream {
     }
 
     if (this.isComplete) {
-      throw new Error('cannot update the child value of a closed valueStream');
+      throw new Error('cannot update the child value of a closed streamOfValues');
     }
 
     if (!this.hasChildren) {
@@ -760,10 +796,7 @@ class ValueStream {
    * @private
    */
   _updateStatus() {
-    if (!this.isNew) {
-      return;
-    }
-    if (this.name && (this.hasChildren || (this.hasValue))) {
+    if (this.isNew && (this.hasChildren || (this.hasValue))) {
       this.status = STATUS_ACTIVE;
     }
   }

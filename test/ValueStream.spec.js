@@ -136,7 +136,7 @@ tap.test('ValueStream', (suite) => {
   });
 
   suite.test('single value stream with type', (testSVStream) => {
-    const svTypedSteam = new ValueStream({
+    const svTypedStream = new ValueStream({
       name: 'single value stream with type',
       value: 1000,
       type: 'number'
@@ -145,24 +145,25 @@ tap.test('ValueStream', (suite) => {
     /// monitor activity
     const values = [];
     const errors = [];
-    const s = svTypedSteam.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
+    const s = svTypedStream.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
 
-    testSVStream.same(svTypedSteam.name, 'single value stream with type');
-    testSVStream.notOk(svTypedSteam.isNew);
-    testSVStream.ok(svTypedSteam.isActive);
-    testSVStream.notOk(svTypedSteam.hasChildren);
-    testSVStream.same(svTypedSteam.value, 1000);
+    testSVStream.same(svTypedStream.name, 'single value stream with type');
+    testSVStream.notOk(svTypedStream.isNew);
+    testSVStream.ok(svTypedStream.isActive);
+    testSVStream.notOk(svTypedStream.hasChildren);
+    testSVStream.same(svTypedStream.value, 1000);
 
     testSVStream.same(values, [1000], 'values contains initial startValue');
 
-    svTypedSteam.value = 'Flanders';
+    svTypedStream.value = 'Flanders';
     testSVStream.same(values, [1000], 'values contains initial startValue');
-    testSVStream.same(svTypedSteam.value, 1000);
+    testSVStream.same(svTypedStream.value, 1000);
 
     testSVStream.same(errors.length, 1, '1 error caught');
     testSVStream.same(errors[0].message, "attempt to set invalid value");
 
     s.unsubscribe();
+
     testSVStream.end();
   });
 
@@ -190,6 +191,89 @@ tap.test('ValueStream', (suite) => {
       {age: 50, name: 'Bob', height: 70, weight: 200},
       {age: 45, name: 'Bob', height: 70, weight: 200}
     ]);
+    s.unsubscribe();
+    testNC.end();
+  });
+
+  suite.test('name typed stream', (testNC) => {
+    const typedStream = new ValueStream({
+      name: 'name children', children: {
+        age: {value: 50, type: 'number'},
+        name: {value: 'Bob', type: 'string'},
+        height: 70, // inches,
+        weight: 200
+      }
+    });
+
+    // monitor activity
+    const values = [];
+    const errors = [];
+    const s = typedStream.subscribeToValue((state) => values.push(state), (e) => errors.push(e));
+
+    testNC.same(errors, []);
+    testNC.same(values, [{age: 50, name: 'Bob', height: 70, weight: 200}]);
+
+    typedStream.do.setAge(45);
+    testNC.same(errors, []);
+
+    testNC.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 45, name: 'Bob', height: 70, weight: 200}
+    ]);
+
+    typedStream.do.setAge('stupid Flanders');
+    testNC.same(errors.map(e => _.pick(e, ['message', 'child', 'error.value'])),
+      [
+        {
+          "message": "child error:attempt to set invalid value",
+          "child": "age",
+          "error": {
+            "value": "stupid Flanders",
+          },
+        },
+      ]
+    );
+    testNC.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 45, name: 'Bob', height: 70, weight: 200}
+    ]);
+
+
+    typedStream.do.setName(200);
+
+    testNC.same(errors.map(e => _.pick(e, ['message', 'child', 'error.value'])),
+      [
+        {
+          "message": "child error:attempt to set invalid value",
+          "child": "age",
+          "error": {
+            "value": "stupid Flanders",
+          },
+        },
+
+        {
+          "message": "child error:attempt to set invalid value",
+          "child": "name",
+          "error": {
+            "value": 200,
+          },
+        },
+      ]
+    );
+    // where is the second error?
+
+    testNC.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 45, name: 'Bob', height: 70, weight: 200}
+    ]);
+    typedStream.do.setName('Robert');
+    testNC.same(values, [
+      {age: 50, name: 'Bob', height: 70, weight: 200},
+      {age: 45, name: 'Bob', height: 70, weight: 200},
+      {age: 45, name: 'Robert', height: 70, weight: 200}
+    ]);
+
+
     s.unsubscribe();
     testNC.end();
   });
@@ -405,6 +489,66 @@ tap.test('ValueStream', (suite) => {
         {x: 1, y: 3},
         {x: 2, y: 6}
       ]);
+
+      s.unsubscribe();
+
+      caSetTest.end();
+    });
+
+    actionsTest.test('with errors', async (caSetTest) => {
+      const coord = new ValueStream('coord')
+        .addChild('x', 0, 'number')
+        .addChild('y', 0, 'number')
+        .addAction('transform', (v, xT, yT) => {
+          if (!is.number(xT)) {
+            throw new Error(`bad transform x value ${xT}`)
+          }
+
+          if (!is.number(yT)) {
+            throw new Error(`bad transform x value ${yT}`)
+          }
+
+          const x = v.get('x');
+          const y = v.get('y');
+          v.set('x', x + xT, 'y', y + yT);
+        })
+        .addAction('scale', (v, n) => {
+          if (!is.number(n)) {
+            throw new Error('bad scale value')
+          }
+          const x = v.get('x');
+          const y = v.get('y');
+          v.set('x', x * n, 'y', y * n);
+        });
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = coord.subscribeToValue((xy) => {
+        values.push(xy);
+      }, (e) => {
+        return errors.push(e);
+      });
+
+      coord.set('x', 10, 'y', 5);
+
+      caSetTest.same(values, [{x: 0, y: 0}, {x: 10, y: 5}]);
+      coord.do.scale(2);
+      caSetTest.same(values, [
+        {x: 0, y: 0},
+        {x: 10, y: 5},
+        {x: 20, y: 10},
+      ]);
+
+      caSetTest.same(errors, []);
+
+      coord.do.scale(null);
+      caSetTest.same(values, [
+        {x: 0, y: 0},
+        {x: 10, y: 5},
+        {x: 20, y: 10},
+      ]);
+      caSetTest.same(errors, [new Error('bad scale value')]);
 
       s.unsubscribe();
 

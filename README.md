@@ -490,3 +490,27 @@ by the end of the action, `await` it in the body of the action
 or return the promise as the last line of the action.
 
 And you *must* await the action in the calling context.
+
+# Errors.
+
+A truly irritating fact of life for BehaviorSubjects is that if they ever get an error,
+they close. Because they are weak and stupid. As I hate this conceit, the current 
+streams are never (and should never be) sent errors. Instead they plough on with next values
+til they are closed.
+
+If an action throws an error it is routed straight to the errorStream as a next event. 
+While I could insist you subscribe to errors directly, in the interest of expediency, 
+I automatically do so when you `.subscribe` to a ValueStream. 
+
+So in fairness: `myValueStream.subscribe(onValue, onErr, onDone)` is **NOT EXACTLY EQUIVALENT**
+to `myValueStream.stream.subscribe(onValue, onError, onDone)`. 
+
+rather it amounts to: 
+
+```javascript
+myStream = new ValueStream({name: 'a number', value: 0, type: 'number'});
+myStream.subscribe((stream) => {console.log('number is:', stream.value)});
+myStream.errorStream.subscribe((error) => {console.error('number error:', error)});
+```
+
+the same allowance is made with `.subscribeToValue(...)` and `.subscribeToMap(...)`. 

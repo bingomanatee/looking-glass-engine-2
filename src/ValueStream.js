@@ -1,7 +1,7 @@
 import _ from 'lodash';
 import propper from '@wonderlandlabs/propper'
-import {BehaviorSubject, EMPTY} from "rxjs";
-import {map, distinctUntilChanged} from 'rxjs/operators';
+import {BehaviorSubject, Subject, Notification, merge} from "rxjs";
+import {map, distinctUntilChanged, materialize, dematerialize, filter, catchError} from 'rxjs/operators';
 import is from 'is';
 import resolve from './resolve';
 import capFirst from './capFirst';
@@ -13,7 +13,6 @@ const STATUS_CLOSED = Symbol('closed');
 const STATUS_NEW = Symbol('new');
 const STATUS_TRANSACTION = Symbol('transaction');
 const ABSENT = Symbol('just leaving for a pack of cigarettes');
-const SOLE_VALUE = Symbol('sole_value');
 
 const compare = (v1, v2) => {
   if (v1 === v2) {
@@ -57,8 +56,6 @@ class ValueStream {
     );
 
     if (arg.children) {
-      console.log('defined ValueStream ', this.name,
-        'with both value AND children - the value will be ignored.');
       if ('_value' in this) {
         delete this._value;
       }
@@ -154,20 +151,19 @@ class ValueStream {
     if (transact) {
       this.actions[name] = async (...args) => {
         await this.transact(async () => {
-          const result = await resolve(this, fn(this, ...args));
-          if (result && is.object(result)) {
-            this.setState(result);
-            return false;
-          } else {
-            return result;
+          try {
+            await resolve(this, fn(this, ...args));
+          } catch (err) {
+            this._emitError(err);
           }
         });
       };
     } else {
       this.actions[name] = async (...args) => {
-        const result = await resolve(this, fn(this, ...args));
-        if (result && is.object(result)) {
-          this.setState(result);
+        try {
+          await resolve(this, fn(this, ...args));
+        } catch (err) {
+          this._emitError(err);
         }
       };
     }
@@ -185,20 +181,36 @@ class ValueStream {
     return this._stream;
   }
 
+  get streamInvulnerable() {
+    return this.stream.pipe(
+      catchError(err => {
+        this.errorStream.next(err);
+        return new BehaviorSubject(this);
+      })
+    )
+  }
+
+  get errorStream() {
+    if (!this._eStream) {
+      this._eStream = new Subject();
+    }
+    return this._eStream;
+  }
+
   get streamOfValues() {
     if (!this._valueStream) {
-      this._valueStream = this.stream.pipe(map((stream) => {
-          if (stream.hasChildren) {
-            const out = stream.asObject;
-            return out;
-          }
-          return stream.value;
-        }),
-        distinctUntilChanged((prev, curr) => {
-          const diff = compare(prev, curr);
-          return diff;
-        })
-      );
+      this._valueStream = this.streamInvulnerable
+        .pipe(map((stream) => {
+            if (stream.hasChildren) {
+              return stream.asObject;
+            }
+            return stream.value;
+          }),
+          distinctUntilChanged((prev, curr) => {
+            const diff = compare(prev, curr);
+            return diff;
+          })
+        );
     }
     return this._valueStream;
   }
@@ -316,16 +328,16 @@ class ValueStream {
       console.log('attempted to set the value of ', this.name, 'which has children; a no-op');
       this._updateStatus();
     } else {
-      if (this.type === ABSENT) {
-        this._inferType(newValue);
-      } else if (!this.validValue(newValue)) {
-        this._emitError({
-          message: 'attempt to set invalid value',
-          name: this.name,
-          value: newValue,
-          type: this.type,
-        });
-        return;
+      if (this.type !== ABSENT) {
+        if (!this.validValue(newValue)) {
+          this._emitError({
+            message: 'attempt to set invalid value',
+            name: this.name,
+            value: newValue,
+            type: this.type,
+          });
+          return;
+        }
       }
       if (this.type === 'array' && Array.isArray(newValue)) {
         this._value = [...newValue];
@@ -429,9 +441,6 @@ class ValueStream {
   /* ******************* METHODS ********************* */
 
   async transact(fn) {
-    if (this.isComplete) {
-      throw new Error('cannot transact a closed streamOfValues');
-    }
     const status = this._status;
     this._status = STATUS_TRANSACTION;
 
@@ -449,9 +458,6 @@ class ValueStream {
   }
 
   transactSync(fn) {
-    if (this.isComplete) {
-      throw new Error('cannot transact a closed streamOfValues');
-    }
     const status = this.status;
     this._status = STATUS_TRANSACTION;
 
@@ -468,27 +474,26 @@ class ValueStream {
     return this;
   }
 
-  subscribe(...args) {
-    if (this.isComplete) {
-      throw new Error('cannot subscribe to a closed streamOfValues');
-    } else {
-      return this.stream.subscribe(...args);
+  subscribe(onNext, onError, onComplete) {
+    if (onError) {
+      this.errorStream.subscribe(onError);
     }
+    return this.streamInvulnerable.subscribe(onNext, onError, onComplete);
   }
 
-  subscribeToValue(...args) {
-    if (this.isComplete) {
-      throw new Error('cannot subscribe to a closed streamOfValues');
-    } else {
-      return this.streamOfValues.subscribe(...args);
+  subscribeToValue(onValue, onError, onComplete) {
+    if (onError) {
+      this.errorStream.subscribe(onError);
     }
+    return this.streamOfValues
+      .subscribe(onValue, onError, onComplete);
   }
 
-  subscribeToMap(...args) {
-    if (!this.isComplete) {
-      return this.mapStream.subscribe(...args);
+  subscribeToMap(onNext, onError, onComplete) {
+    if (onError) {
+      this.errorStream.subscribe(onError);
     }
-    throw new Error('cannot subscribe to a closed streamOfValues');
+    return this.mapStream.subscribe(onNext, onError, onComplete);
   }
 
   get(key, asValue = true) {
@@ -545,7 +550,7 @@ class ValueStream {
           console.log('bad key value passed to set:', key, value);
         }
       } else {
-        this._value = key;
+        this.value = key;
       }
     });
     return this;
@@ -587,7 +592,9 @@ class ValueStream {
   }
 
   has(key) {
-    if (!this.hasChildren) return false;
+    if (!this.hasChildren) {
+      return false;
+    }
     // note will hit EMPTY_MAP for single value
     return this.children.has(key);
   }
@@ -637,7 +644,15 @@ class ValueStream {
       })
     }
 
-    this.children.set(key, value);
+    if (is.object(value) && ('value' in value) && ('type' in value)) {
+      this.children.set(key, new ValueStream({
+        name: key,
+        type: value.type,
+        value: value.value,
+      }))
+    } else {
+      this.children.set(key, value);
+    }
 
     this._updateStatus();
 
@@ -712,7 +727,7 @@ class ValueStream {
 
   _emitChildError(key, error) {
     if (!this.isComplete) {
-      this.stream.error({
+      this._emitError({
         type: 'child error',
         key,
         error
@@ -727,7 +742,7 @@ class ValueStream {
         if (is.string(err)) {
           err = new Error(err);
         }
-        this.stream.error(err);
+        this.errorStream.next(err);
       }
     } catch (err) {
       console.log('emit error -- has an error ?', err.message);

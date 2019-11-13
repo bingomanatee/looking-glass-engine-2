@@ -31,3 +31,8 @@ as an eventual replacement for store.
 
 replacing Store with ValueStream to put more control over child values.
 Allowing filtered streaming to reduce broadcasts for a subset of properties
+
+## 3.0.2
+
+Better error handling. Avoid sending errors out of '.stream'; instead,
+create seperate error subject.

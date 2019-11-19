@@ -98,8 +98,6 @@ Though I don't recommend it, `myValueStream.value = {name: Bob, age: 10}`
 has the same behavior as `myStream.setMany({name: Bob, age: 10})`: a multi-value
 update that triggers a single broadcast. 
 
-**IN NO CIRCUMSTANCE** do any of these methods or actions cauterize the fields that they don't include ...
-
 ## Stricter control of the field set
 
 You can't randomly add a field to a ValueStream using `.addMany()`, `.set()` or `.value =`. 
@@ -118,20 +116,41 @@ Its not advised to separate schema definition from the initial construction of a
 that is wrong and ill=advised. However you might find parametrically expanding a ValueStream
 with functions a useful pattern. 
 
+note that unlike Redux or LGE 2.x, it is **VERY DIFFICULT** (if not impossible) to simply wipe a value
+out of the current state, **OR** to set it to an illegitimate value. 
+Type checking is so deeply welded to the field definition/update process that you are insulated from
+bad action by the nature of ValueStreams. It *is possible* to have untyped values -- but once
+you define the type of a stream, it is nearly impossible to set its value to another type of data. 
+
 ## My continued failure: transactions
 
 I have tried and failed several times to model transactions. The difficulty in transactions is that 
 they either become blocking (by delaying outside activity til the transaction - action completes)
 confusing (by resetting the value of the stream to its previous state, you may be undoing
 the healthy activity of other actions) or heavy (creating some sort of change-tracked parallel universe
-stream that synchronizes on completion). so while there are transaction options in the API I would emphasize
-*use with caution* -- they are intended only to manage *synchronous* actions in which you have full control 
-of all the state and undoing back to zero is a healthy option for an error-throwing action. 
+stream that synchronizes on completion). 
+
+Because of this the previous code that reset the state of a stream on an error has been removed. 
+Instead, transactions in LGE 3.x only limit the number of emitted update broadcasts to one no matter
+how many values have changed. Note that the change deltas (see below) are still fired off one by one. 
+
+## Change Observation
+
+New in LGE 3.2, the ValueStreams extend EventEmitter. While you can use this for whatever systems you want
+in your app, `set(...)` now triggers 'change:[fieldName]' events that you can listen to. 
+
+You can also hook up actions to fire on specific change broadcasts with `.watch(keyName, actionName)`.
+this method links an action to the change of a specific value. change notifier will send action 'actionName'
+an object with `{name, value, oldValue}` as in `{name: 'count', value: 2, oldValue: 1}`. 
+
+If you expect an action to be triggered in a transaction that you want to complete,
+look at the `whenAfterTransaction(fn)` function or the `awaitAfterTransaction():Promise` function. 
 
 # The API
 
-ValueStream is polymorpic in that you can define it to be a single value observer or a value map observer.
+ValueStream is polymorpic in that you can define it to be a single value observer or an observer of multiple values.
 The latter case is the principle use case so it is what this documentation will focus on. 
+Its worth noting that multi-value observers' children are maps of single value observers. 
 
 ## Constructor({name, type, value | children, actions, parent})
 ## Constructor (name, value, actions, type)

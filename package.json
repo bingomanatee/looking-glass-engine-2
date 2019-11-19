@@ -1,6 +1,6 @@
 {
   "name": "@wonderlandlabs/looking-glass-engine",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "A value streaming system blending RxJS and Redux patterns",
   "main": "lib/index.js",
   "module": "es/index.js",

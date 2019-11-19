@@ -718,5 +718,74 @@ tap.test('ValueStream', (suite) => {
     testFilter.end();
   });
 
+  suite.test('events', (testE) => {
+    testE.test('with action', (withA) => {
+      const eStream = new ValueStream('point')
+        .addChild('x', 0, 'number')
+        .addChild('y', 0, 'number')
+        .addChild('dist', 0, 'number')
+        .addAction('updateDist', (stream) => {
+          const x = stream.get('x');
+          const y = stream.get('y');
+          const dist = Math.round(Math.sqrt((x ** 2) + (y ** 2)));
+          stream.do.setDist(dist);
+        })
+        .watch('x', 'updateDist')
+        .watch('y', 'updateDist');
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = eStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+
+      eStream.do.setX(10);
+      eStream.do.setY(20);
+
+      withA.same(values, [
+        {x: 0, y: 0, dist: 0},
+        {x: 10, y: 0, dist: 10},
+        {x: 10, y: 20, dist: 22}]
+      );
+
+      s.unsubscribe();
+      withA.end();
+    });
+
+    testE.test('with function', (withA) => {
+
+      const updateDist = () => {
+        const x = eStream.get('x');
+        const y = eStream.get('y');
+        const dist = Math.round(Math.sqrt((x ** 2) + (y ** 2)));
+        eStream.do.setDist(dist);
+      };
+      const eStream = new ValueStream('point')
+        .addChild('x', 0, 'number')
+        .addChild('y', 0, 'number')
+        .addChild('dist', 0, 'number')
+        .watch('x', updateDist)
+        .watch('y', updateDist);
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = eStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+
+      eStream.do.setX(10);
+      eStream.do.setY(20);
+
+      withA.same(values, [
+        {x: 0, y: 0, dist: 0},
+        {x: 10, y: 0, dist: 10},
+        {x: 10, y: 20, dist: 22}]
+      );
+
+      s.unsubscribe();
+      withA.end();
+    });
+
+    testE.end();
+  });
+
   suite.end();
 });

@@ -35,4 +35,9 @@ Allowing filtered streaming to reduce broadcasts for a subset of properties
 ## 3.0.2
 
 Better error handling. Avoid sending errors out of '.stream'; instead,
-create seperate error subject.
+create separate error subject.
+
+## 3.0.3
+
+Adding events; ValueStream now extends EventEmitter. changes emit change:[field]
+events, which can be linked to actions or independent functions

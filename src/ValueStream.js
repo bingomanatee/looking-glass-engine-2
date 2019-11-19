@@ -5,6 +5,7 @@ import {map, distinctUntilChanged, materialize, dematerialize, filter, catchErro
 import is from 'is';
 import resolve from './resolve';
 import capFirst from './capFirst';
+import EventEmitter from 'events';
 
 const PARAMETER_NAMES = 'name,value,actions,parent,type'.split(',');
 
@@ -21,9 +22,10 @@ const compare = (v1, v2) => {
   return (v1 === v2) || _.isEqual(v1, v2);
 };
 
-class ValueStream {
+class ValueStream extends EventEmitter {
 
   constructor(name, value = ABSENT, actions, type) {
+    super();
     this._initStream();
     this._value = ABSENT;
     this._type = ABSENT;
@@ -135,6 +137,66 @@ class ValueStream {
     return this._actions;
   }
 
+  get status() {
+    if (!this._status) {
+      return STATUS_NEW;
+    }
+    return this._status;
+  }
+
+  set status(s) {
+    if (typeof s !== 'symbol') {
+      console.log(this.name, 'status set to bad value:', s);
+      return;
+    }
+    if (this._status === s) {
+      return;
+    }
+    this.emit('status', s);
+    this._status = s;
+  }
+
+  whenfterTransaction(fn) {
+    if (!this.isTransactng) {
+      fn();
+    }
+    const onT = () => {
+      if (!this.isTransactng) {
+        this.off('status', onT);
+        fn();
+      }
+    };
+
+    this.on('status', onT);
+
+    return this;
+  }
+
+  /**
+   * returns a promise that will resolve after all transactions have cleared.
+   *
+   * @returns {Promise<unknown>|Promise<void>}
+   */
+  awaitAfterTransaction() {
+    if (!this.isTransactng) {
+      return Promise.resolve();
+    }
+    let done;
+    const p = new Promise((d) => done = d)
+
+    const onT = () => {
+      if (!this.isTransactng) {
+        this.off('status', onT);
+        done();
+      }
+    };
+
+    this.on('status', onT);
+
+    return p;
+  }
+
+  /** a shorter handier alias to actions */
   get do() {
     return this.actions;
   }
@@ -521,6 +583,9 @@ class ValueStream {
    * You can set multiple properties in a single stroke --
    * set('alpha', 1, 'beta', 2, 'delta', 3) will broadcast an update only once.
    *
+   * note: for single value streams, set requires no key; the first argument to set
+   * is the new value.
+   *
    * @param key
    * @param value
    * @param otherArgs
@@ -635,24 +700,23 @@ class ValueStream {
       this._purgeValue();
     }
 
-    if (type && (!(value instanceof ValueStream))) {
-      value = new ValueStream({
-        name: key,
-        value,
-        type,
-        parent: this
-      })
+    if (!(value instanceof ValueStream)) {
+      if (type) {
+        value = new ValueStream({
+          name: key,
+          value,
+          type,
+          parent: this
+        })
+      } else if (is.object(value) && ('value' in value) && ('type' in value)) {
+        value = new ValueStream({
+          name: key,
+          type: value.type,
+          value: value.value,
+        })
+      }
     }
-
-    if (is.object(value) && ('value' in value) && ('type' in value)) {
-      this.children.set(key, new ValueStream({
-        name: key,
-        type: value.type,
-        value: value.value,
-      }))
-    } else {
-      this.children.set(key, value);
-    }
+    this.children.set(key, value);
 
     this._updateStatus();
 
@@ -720,9 +784,10 @@ class ValueStream {
     const currentValue = this.children.get(key);
     if (currentValue instanceof ValueStream) {
       currentValue.set(value); // the value should broadcast back to this stream automatically
-    } else if (currentValue !== value) {
+    } else {
       this.children.set(key, value);
     }
+    this.changed(key, value, currentValue);
   }
 
   _emitChildError(key, error) {
@@ -778,6 +843,33 @@ class ValueStream {
     }
   }
 
+  // --- change notification
+
+  _changeEventName(key) {
+    return 'changed:' + key;
+  }
+
+  changed(key, value, oldValue) {
+    this.emit(this._changeEventName(key), {name: key, value, oldValue});
+  }
+
+  watch(key, listener) {
+    if (!(key && is.string(key))) {
+      console.log(this.name, 'bad watch request for key', key);
+    } else if (is.string(listener)) {
+      if (this.do[listener]) {
+        this.on(this._changeEventName(key), this.do[listener])
+      } else {
+        console.log('cannot listen to ', key, 'with', listener, '(not an action)')
+      }
+    } else if (is.fn(listener)) {
+      this.on(this._changeEventName(key), listener);
+    } else {
+      console.log('bad watch to ', this.name, key, listener);
+    }
+    return this;
+  }
+
   // ---- misc. flags
 
   get hasChildren() {
@@ -830,13 +922,20 @@ class ValueStream {
 }
 
 propper(ValueStream)
-  .addProp('name', {
-    type: 'string',
-    required: true,
-    onChange(value) {
-      this._updateStatus();
+
+  .addProp(
+    'name'
+    , {
+      type: 'string'
+      ,
+      required: true
+      ,
+
+      onChange(value) {
+        this._updateStatus();
+      }
     }
-  })
+  )
   .addProp('status', {type: 'symbol', defaultValue: STATUS_NEW})
   .addProp('parent')
   .addProp('startValue')

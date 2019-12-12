@@ -750,6 +750,46 @@ tap.test('ValueStream', (suite) => {
       s.unsubscribe();
       withA.end();
     });
+    testE.test('with action parameterized', (withA) => {
+      const eStream = new ValueStream('point')
+        .addChild('x', 0, 'number')
+        .addChild('y', 0, 'number')
+        .addChild('dist', 0, 'number')
+        .addChild('lastYchange', 0, 'number')
+        .addAction('updateYchange', (stream, change) => {
+          const {value, was} = change;
+          stream.set('lastYchange', value - was);
+        } )
+        .addAction('updateDist', (stream) => {
+          const x = stream.get('x');
+          const y = stream.get('y');
+
+          const dist = Math.round(Math.sqrt((x ** 2) + (y ** 2)));
+          stream.do.setDist(dist);
+        })
+        .watch('x', 'updateDist')
+        .watch('y', 'updateYchange')
+        .watch('y', 'updateDist');
+
+      // monitor activity
+      const values = [];
+      const errors = [];
+      const s = eStream.subscribe(({state}) => values.push(state), (e) => errors.push(e));
+
+      eStream.do.setX(10);
+      eStream.do.setY(20);
+
+      withA.same(eStream.get('lastYchange'), 20);
+      withA.same(eStream.get('dist'), 22);
+
+      eStream.do.setY(30);
+
+      withA.same(eStream.get('lastYchange'), 10);
+      withA.same(eStream.get('dist'), 32);
+
+      s.unsubscribe();
+      withA.end();
+    });
 
     testE.test('with function', (withA) => {
 
@@ -785,6 +825,33 @@ tap.test('ValueStream', (suite) => {
     });
 
     testE.end();
+  });
+
+  suite.test('my', (testMy) => {
+
+    const s = new ValueStream('withMy')
+      .addChild('alpha', 0, 'number')
+      .addChild('beta', 0, 'number')
+      .addChild('sum', 0, 'number')
+      .addAction('updateSum', (stream) => {
+        stream.my.sum = stream.my.beta + stream.my.alpha;
+      })
+      .watch('alpha', 'updateSum')
+      .watch('beta', 'updateSum');
+
+    testMy.same(s.my.alpha, 0);
+    testMy.same(s.my.beta, 0);
+    testMy.same(s.my.sum, 0);
+
+    s.my.beta = 2;
+
+    testMy.same(s.my.alpha, 0);
+    testMy.same(s.my.beta, 2);
+    testMy.same(s.my.sum, 2);
+
+    const {my} = s;
+
+    testMy.end();
   });
 
   suite.end();

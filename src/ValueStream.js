@@ -345,6 +345,56 @@ class ValueStream extends EventEmitter {
     return this._value;
   }
 
+  get my() {
+    if (!this.hasChildren) {
+      return this.value;
+    }
+    if (!this._my) {
+      if (typeof Proxy !== 'undefined') {
+        this._my = new Proxy(this, {
+          get(target, key) {
+            return target.get(key);
+          },
+          has(target, key) {
+            return target.children.has(key);
+          },
+          set(target, key, value) {
+            return target.set(key, value);
+          },  getOwnPropertyDescriptor: function (target) {
+            return {
+              value: target.values,
+              writable: true,
+              enumerable: true,
+              configurable: true
+            }
+          },
+          ownKeys(target) {
+            return Array.from(target.children.keys());
+          },
+          enumerate(target) {
+            return target.children.keys();
+          }
+        })
+      } else {
+        this._my = {};
+        const addKey = (key) => {
+          Object.defineProperty(this._my, key, {
+            get() {
+              return this.get(key);
+            },
+            set(value) {
+              this.set(key, value);
+            }
+          });
+        };
+
+        this.children.keys.forEach(addKey);
+        this.on('child:new', addKey);
+      }
+    }
+    return this._my;
+  }
+
   /**
    * this test ONLY evaluates the existenceness of the value property.
    * i.e., it is true if this ValueStream has a value AND NOT children.
@@ -383,12 +433,12 @@ class ValueStream extends EventEmitter {
     if (this.hasChildren) {
       if (Array.isArray(newValue)) {
         this.set(...newValue);
-      }
+      } else
       if (is.object(newValue)) {
         this.setMany(newValue);
+      } else {
+        console.log('attempted to set the value of ', this.name, 'which has children; a no-op');
       }
-      console.log('attempted to set the value of ', this.name, 'which has children; a no-op');
-      this._updateStatus();
     } else {
       if (this.type !== ABSENT) {
         if (!this.validValue(newValue)) {
@@ -408,9 +458,9 @@ class ValueStream extends EventEmitter {
       } else {
         this._value = newValue;
       }
-      this._updateStatus();
-      this._broadcast();
     }
+    this._updateStatus();
+    this._broadcast();
   }
 
   /**
@@ -469,8 +519,7 @@ class ValueStream extends EventEmitter {
   }
 
   /**
-   * this is like value --- except --- if there are children the value are coerced
-   * into an object.
+   * this is like value --- except --- if there are children the value are coerced into an object.
    *
    * @returns {*}
    */
@@ -484,6 +533,10 @@ class ValueStream extends EventEmitter {
       out[key] = value instanceof ValueStream ? value.values : value;
     });
     return out;
+  }
+
+  set values(value) {
+    this.value = value;
   }
 
   get children() {
@@ -717,6 +770,7 @@ class ValueStream extends EventEmitter {
       }
     }
     this.children.set(key, value);
+    this.emit('child:new', key);
 
     this._updateStatus();
 
@@ -783,11 +837,13 @@ class ValueStream extends EventEmitter {
 
     const currentValue = this.children.get(key);
     if (currentValue instanceof ValueStream) {
+      const was = currentValue.value;
       currentValue.set(value); // the value should broadcast back to this stream automatically
+      this.changed(key, value, was);
     } else {
       this.children.set(key, value);
+      this.changed(key, value, currentValue);
     }
-    this.changed(key, value, currentValue);
   }
 
   _emitChildError(key, error) {
@@ -846,11 +902,13 @@ class ValueStream extends EventEmitter {
   // --- change notification
 
   _changeEventName(key) {
-    return 'changed:' + key;
+    return 'update:' + key;
   }
 
-  changed(key, value, oldValue) {
-    this.emit(this._changeEventName(key), {name: key, value, oldValue});
+  changed(key, value, was) {
+    if (value !== was) {
+      this.emit(this._changeEventName(key), {name: key, value, was});
+    }
   }
 
   watch(key, listener) {

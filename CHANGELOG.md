@@ -41,3 +41,7 @@ create separate error subject.
 
 Adding events; ValueStream now extends EventEmitter. changes emit change:[field]
 events, which can be linked to actions or independent functions
+
+## 3.0.4 
+Added a shorthand `.my` proxy property for setting/getting values. 
+changing the signature of watcher from `oldValue` to `was`

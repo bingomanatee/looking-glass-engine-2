@@ -122,7 +122,7 @@ Type checking is so deeply welded to the field definition/update process that yo
 bad action by the nature of ValueStreams. It *is possible* to have untyped values -- but once
 you define the type of a stream, it is nearly impossible to set its value to another type of data. 
 
-## My continued failure: transactions
+## transactions
 
 I have tried and failed several times to model transactions. The difficulty in transactions is that 
 they either become blocking (by delaying outside activity til the transaction - action completes)
@@ -130,9 +130,10 @@ confusing (by resetting the value of the stream to its previous state, you may b
 the healthy activity of other actions) or heavy (creating some sort of change-tracked parallel universe
 stream that synchronizes on completion). 
 
-Because of this the previous code that reset the state of a stream on an error has been removed. 
-Instead, transactions in LGE 3.x only limit the number of emitted update broadcasts to one no matter
-how many values have changed. Note that the change deltas (see below) are still fired off one by one. 
+Blocking is often not what you want if you want to enable sub-actions to complete.
+
+Instead, transactions in LGE 3.x limit the number of emitted update broadcasts to one no matter
+how many values have changed - they don't block actual updates to value streams.
 
 ## Change Observation
 
@@ -141,7 +142,7 @@ in your app, `set(...)` now triggers 'change:[fieldName]' events that you can li
 
 You can also hook up actions to fire on specific change broadcasts with `.watch(keyName, actionName)`.
 this method links an action to the change of a specific value. change notifier will send action 'actionName'
-an object with `{name, value, oldValue}` as in `{name: 'count', value: 2, oldValue: 1}`. 
+an object with `{name, value, was}` as in `{name: 'count', value: 2, was: 1}`. 
 
 If you expect an action to be triggered in a transaction that you want to complete,
 look at the `whenAfterTransaction(fn)` function or the `awaitAfterTransaction():Promise` function. 
@@ -152,16 +153,19 @@ ValueStream is polymorpic in that you can define it to be a single value observe
 The latter case is the principle use case so it is what this documentation will focus on. 
 Its worth noting that multi-value observers' children are maps of single value observers. 
 
-## Constructor({name, type, value | children, actions, parent})
-## Constructor (name, value, actions, type)
+No testing has been done on deeply nested ValueStreams.
 
-The first form of the constructor is preferred. 
+## Constructor({name, type, value | children, actions, parent})
+## Constructor (name, value? , actions?, type?)
 
 As a side note, setting the value as an object in the constructor will *not* create a map ValueStream;
 only setting the children property will do so. 
 This also means that the only way to initialize a ValueStream with children in the constructor 
 is the first form of the constructor (by passing a parameter).
 Otherwise you'll need to define children parametrically, post-construction. 
+
+Also, while you can initialize a ValueStream only in its constructor
+you can also call currying functions to extend it post-construction. 
 
 ```javascript
 
@@ -184,7 +188,7 @@ The constructor value, 'bad boy', and its type definition have been obliterated.
 
 Another example: defining the value in a list of properties defines a single-value ValueStream.
 defining children explicitly in the constructor OR post construction will make that ValueStream
- a multi-value stream.
+a multi-value stream.
  
  ```javascript
 
@@ -210,16 +214,60 @@ define children specifically as a parameter or via `.addChildren(name, value, ty
 
 ## Value properties
 
-### value: {various}
-### state (identical)
+There are a couple of parallel ways to get/set values of a multi-value stream. Note that 
+the `.my` property is the preferred way to get/set individual values.
 
-The value of a single-value ValueStream -- **OR** a hydrated object 
-containing name/value pairs of the children.
-Setting the value manually `myStream.value = 3` will update its value 
-*and* broadcast an update(see below);)
-If you want to be cautious, use `.isValid(aValue)` 
-to check the validity of a value before assigning it to value. 
+### my {Object|value}
+
+an object you can use to get/set individual child values. 
+On a non-child object my is a read-only alias for value.
+
+
+```javascript
+
+/**
+
+const s = new ValueStream('withMy')
+  .addChild('alpha', 0, 'number')
+  .addChild('beta', 0, 'number')
+  .addChild('sum', 0, 'number')
+  .addAction('updateSum', (stream) => {
+    stream.my.sum = stream.my.beta + stream.my.alpha;
+  })
+  .watch('alpha', 'updateSum')
+  .watch('beta', 'updateSum');
+
+console.log(s.my.alpha); 
+// 0
+console.log(s.my.beta);
+// 0
+console.log(s.my.sum);
+// 0
+
+s.my.beta = 2;
+
+console.log(s.my.beta);
+// 2
+console.log(s.my.sum);
+// 2
+
+**/
+```
+
+### value: {various}
+### state: (identical)
+
+The value of a single-value ValueStream -- **OR** a map containing name/value pairs of the children.
+this effectively clones the `.children property `
+note the values of this map will be **value streams**. If you want a hydrated object see `.values` `.asObject` and `.my`.
+Setting the value manually `myStream.value = 3` will update a single-value stream's value.
+Setting a value of a multi-value with an object or array sets multiple key-values at once (see `.setMany`).
 state is added as a legacy property. 
+
+# values: {various}
+
+returns value for single-value ValueStreams, or asObject's value -- children's values hydrated to an object -- 
+for multi-value streams. 
 
 ### children {Map} 
 
@@ -231,7 +279,6 @@ changes OR type check values, and deleting value(s)) will F**K you up.
 .asMap` or `.asObject` is a cleaner way to access the values of a ValueStream as they will compress
 out any ValueStreams from the return value. 
 
-
 ## asObject: {Object}
 
 The values of the stream as an object. 
@@ -242,6 +289,10 @@ Nested ValueStreams return their value, or their `.asObject` property if they ha
 The values of the stream as a map. 
 Nested ValueStreams return their value, or their `.asMap` property if they have children. 
 This is what is returned by the `.subscribeToMap` observable function
+
+# values {Object}
+
+unlike value which essentially clones the children property
 
 ## Information/introspection properties
 
@@ -288,7 +339,7 @@ mutate the values before you recieve them, you can `.pipe(..)` from the stream a
 There is no circumstances in which this stream can/should be updated once created. 
 
 ## streamOfValues {BehaviorSubject}
-## mapStream {BehaivorSubject}
+## mapStream {BehaviorSubject}
 Streams that return the value(s) of the ValueStream on changes,
 not the entire ValueStream (as `stream` does). streamOfValues always returns an object; mapStream emits
 a copy of the children map; this also means that mapStream will return any sub-streams intact. 

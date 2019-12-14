@@ -360,7 +360,7 @@ class ValueStream extends EventEmitter {
           },
           set(target, key, value) {
             return target.set(key, value);
-          },  getOwnPropertyDescriptor: function (target) {
+          }, getOwnPropertyDescriptor: function (target) {
             return {
               value: target.values,
               writable: true,
@@ -378,14 +378,18 @@ class ValueStream extends EventEmitter {
       } else {
         this._my = {};
         const addKey = (key) => {
-          Object.defineProperty(this._my, key, {
-            get() {
-              return this.get(key);
-            },
-            set(value) {
-              this.set(key, value);
-            }
-          });
+          if (this.children.has(key)) {
+            Object.defineProperty(this._my, key, {
+              get() {
+                return this.get(key);
+              },
+              set(value) {
+                this.set(key, value);
+              }
+            });
+          } else {
+            console.log('my/addKey fails on key', key)
+          }
         };
 
         this.children.keys.forEach(addKey);
@@ -433,8 +437,7 @@ class ValueStream extends EventEmitter {
     if (this.hasChildren) {
       if (Array.isArray(newValue)) {
         this.set(...newValue);
-      } else
-      if (is.object(newValue)) {
+      } else if (is.object(newValue)) {
         this.setMany(newValue);
       } else {
         console.log('attempted to set the value of ', this.name, 'which has children; a no-op');

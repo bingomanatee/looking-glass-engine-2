@@ -621,7 +621,6 @@ class ValueStream extends EventEmitter {
           return this.value[key];
         }
       }
-      console.log('get(', key, ') called on a childless ValueStream', ths.name, 'with value', this.value);
     }
     if (this.has(key)) {
       const value = this.children.get(key);

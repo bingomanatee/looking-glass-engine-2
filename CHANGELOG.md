@@ -45,3 +45,6 @@ events, which can be linked to actions or independent functions
 ## 3.0.4, 3.0.5 
 Added a shorthand `.my` proxy property for setting/getting values. 
 changing the signature of watcher from `oldValue` to `was`
+
+## 3.0.6
+removing debug error
